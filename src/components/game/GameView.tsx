@@ -28,6 +28,8 @@ interface GameViewProps {
   onExit: () => void;
   exitLabel?: string;
   showOrderOnStart?: boolean;
+  /** Avisa quando uma janela abre/fecha (no jogo local os bots esperam a janela fechar). */
+  onModalChange?: (open: boolean) => void;
 }
 
 type ModalState =
@@ -43,15 +45,19 @@ type ModalState =
 type Step = 1 | 5 | 10 | "all" | "remove";
 type Tab = "turn" | "players" | "continents" | "log";
 
-export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", showOrderOnStart }: GameViewProps) {
+export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", showOrderOnStart, onModalChange }: GameViewProps) {
   const toast = useToast();
   const g = useMemo(() => Game.load(state), [state]);
   const s = g.s;
   const cur = s.current;
   const player = cur >= 0 ? s.players[cur] : null;
   const isOver = s.stage === "over";
-  const canAct = !isOver && cur >= 0 && (me === null || me === cur);
-  const viewer = me ?? cur; // de quem são as cartas mostradas
+  const botTurn = !isOver && !!player?.bot;
+  const canAct = !isOver && cur >= 0 && !botTurn && (me === null || me === cur);
+  // de quem são as cartas mostradas: online, as suas; no local, as de quem está na vez
+  // (na vez de um bot, as do único humano, se houver só um)
+  const humans = s.players.filter((p) => !p.bot);
+  const viewer = me ?? (player && !player.bot ? cur : humans.length === 1 ? humans[0].index : -1);
 
   // seleção e rascunho "presos" ao turno: mudam de turno -> zeram sem precisar de efeito
   const turnKey = `${s.round}|${s.stage}|${cur}|${s.poolIndex}|${s.tradeCount}|${s.pools.length}|${s.tradeSub}`;
@@ -71,7 +77,11 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
   const [step, setStep] = useState<Step>(1);
   const [showNames, setShowNames] = useState(true);
   const [tab, setTab] = useState<Tab>("turn");
-  const [modal, setModal] = useState<ModalState>(showOrderOnStart ? { kind: "order" } : { kind: "none" });
+  const [modal, setModalState] = useState<ModalState>(showOrderOnStart ? { kind: "order" } : { kind: "none" });
+  const setModal = (m: ModalState) => {
+    setModalState(m);
+    onModalChange?.(m.kind !== "none");
+  };
   const [winnerDismissed, setWinnerDismissed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [flashIds, setFlashIds] = useState<TerritoryId[]>([]);
@@ -88,7 +98,7 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
   const lastSeq = useRef<number | null>(null);
   useEffect(() => {
     const key = `${s.stage}|${cur}`;
-    if (lastTurn.current !== null && lastTurn.current !== key && cur >= 0 && s.stage !== "over") {
+    if (lastTurn.current !== null && lastTurn.current !== key && cur >= 0 && s.stage !== "over" && !s.players[cur].bot) {
       const p = s.players[cur];
       toast(`Vez de ${p.name}${me === cur ? " (você)" : ""} — ${stageLabel(g)}`, p.color);
     }
@@ -258,6 +268,15 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
           cls.push("pending");
           bcls.push("pending");
         }
+        // quem assiste vê de onde veio e para onde foi o último ataque
+        const lb = !canAct && s.lastBattle && s.lastBattle.attacker === cur ? s.lastBattle : null;
+        if (lb?.from === id) {
+          cls.push("selected");
+          bcls.push("selected");
+        } else if (lb?.to === id) {
+          cls.push("target");
+          bcls.push("target");
+        }
         if (canAct) {
           if (attackSource === id) {
             cls.push("selected");
@@ -379,7 +398,7 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
           {disconnected.map((p) => {
             const sp = s.players[p.seat!];
             return (
-              <span key={p.userId} className="inline-flex items-center gap-1.5">
+              <span key={p.id} className="inline-flex items-center gap-1.5">
                 <Swatch color={sp.color} className="!size-3" />
                 <b>{sp.name}</b> desconectado
                 {online!.reconnectTimer && p.deadline !== null ? (
@@ -449,6 +468,7 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
                 <div className="mt-0.5 mb-1 flex items-center gap-2 text-base font-bold compact:text-[15px]">
                   <Swatch color={player.color} className="!size-5" />
                   {me === cur ? "Sua vez" : `Vez de ${player.name}`}
+                  {player.bot && <span title="Bot">🤖</span>}
                 </div>
                 {aiRow}
                 {!canAct ? (
@@ -515,8 +535,13 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
                         <span className="flex items-center gap-1.5">
                           <Swatch color={p.color} />
                           <span className="truncate">{p.name}</span>
+                          {p.bot && (
+                            <span className="flex-none text-[12px]" title="Bot (jogador do computador)">
+                              🤖
+                            </span>
+                          )}
                           {s.teamMode && <span className="team-tag">{"ABCDEFGHI"[p.team]}</span>}
-                          {pres && p.alive && (
+                          {pres && p.alive && !p.bot && (
                             <span
                               className={`size-2 flex-none rounded-full ${pres.online ? "bg-ok" : "bg-danger"}`}
                               title={pres.online ? "Conectado" : "Desconectado"}
@@ -714,6 +739,13 @@ function WaitingInfo({ g }: { g: Game }) {
   else if (g.stage === "attack") what = "atacando";
   else if (g.stage === "move") what = "passando exércitos";
   else if (g.stage === "trade") what = "trocando cartas";
+  if (p.bot) {
+    return (
+      <Instructions>
+        <b>{p.name}</b> (bot) está jogando{what ? ` — ${what}` : ""}…
+      </Instructions>
+    );
+  }
   return (
     <Instructions>
       Aguardando <b>{p.name}</b>

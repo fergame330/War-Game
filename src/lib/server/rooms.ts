@@ -11,6 +11,7 @@ import {
   type GameState,
   type OnlineModeKey,
 } from "@/lib/game/engine";
+import { botAction, botDelay, fallbackAction, isBotTurn } from "@/lib/game/bot";
 import { OFFLINE_AFTER_MS, RECONNECT_WINDOW_MS, type RoomPayload } from "@/lib/online/types";
 import { getSessionUser } from "./auth";
 import { db } from "./db";
@@ -66,12 +67,15 @@ export function buildPayload(room: RoomWithPlayers, userId: string, now = Date.n
     ...teamInfo(room.mode),
     randomTeams: room.randomTeams,
     players: room.players.map((p) => ({
+      id: p.id,
       userId: p.userId,
-      username: p.user.username,
+      username: playerName(p),
+      bot: !p.userId,
       seat: p.seat,
-      online: now - p.lastSeenAt.getTime() <= OFFLINE_AFTER_MS,
+      // bots estão sempre "conectados": quem os joga é o servidor
+      online: !p.userId || now - p.lastSeenAt.getTime() <= OFFLINE_AFTER_MS,
       lastSeenAt: p.lastSeenAt.getTime(),
-      isHost: p.userId === room.hostId,
+      isHost: !!p.userId && p.userId === room.hostId,
       team: p.team,
     })),
     state: state ? redactState(state, mySeat) : null,
@@ -79,6 +83,16 @@ export function buildPayload(room: RoomWithPlayers, userId: string, now = Date.n
     myUserId: userId,
     serverNow: now,
   };
+}
+
+/** Nome de quem está na sala: o usuário ou o nome do bot. */
+export function playerName(p: RoomWithPlayers["players"][number]): string {
+  return p.user?.username ?? p.botName ?? "Bot";
+}
+
+/** Chave que liga um jogador da sala ao jogador da partida (usuário ou nome do bot). */
+export function seatKey(p: { userId?: string | null; botName?: string | null; name?: string }): string {
+  return p.userId ? `user:${p.userId}` : `bot:${p.botName ?? p.name}`;
 }
 
 /** Tamanho e quantidade de equipes do modo online (1 e 0 no individual). */
@@ -134,6 +148,7 @@ export async function mutateGame<T>(
       data: {
         state: game.toState() as unknown as Prisma.InputJsonValue,
         version: { increment: 1 },
+        updatedAt: new Date(), // usado para o ritmo dos bots
         ...(finished ? { status: "FINISHED" as const } : {}),
       },
     });
@@ -163,20 +178,47 @@ export async function tick(code: string): Promise<void> {
   const now = Date.now();
   const deadline = OFFLINE_AFTER_MS + RECONNECT_WINDOW_MS;
   const state = room.state as unknown as GameState;
+  // bots nunca se desconectam
   const expired = room.players.filter(
-    (p) => p.seat !== null && state.players[p.seat]?.alive && now - p.lastSeenAt.getTime() > deadline
+    (p) => p.userId && p.seat !== null && state.players[p.seat]?.alive && now - p.lastSeenAt.getTime() > deadline
   );
   if (!expired.length) return;
   await mutateGame(code, (game, fresh) => {
     let changed = false;
     for (const p of fresh.players) {
-      if (p.seat === null || !game.s.players[p.seat]?.alive) continue;
+      if (!p.userId || p.seat === null || !game.s.players[p.seat]?.alive) continue;
       if (Date.now() - p.lastSeenAt.getTime() > deadline && game.stage !== "over") {
         changed = game.dissolve(p.seat) || changed;
       }
     }
     return { result: null, changed };
   });
+}
+
+/** A sala está em jogo e é a vez de um bot? */
+export function isBotRoom(room: RoomWithPlayers): boolean {
+  if (room.status !== "PLAYING" || !room.state) return false;
+  return isBotTurn(Game.load(room.state as unknown as GameState));
+}
+
+/**
+ * Faz o bot da vez jogar UMA ação, se já passou a pausa desde a última mudança da sala (para que
+ * todos acompanhem as jogadas). Roda a partir das conexões em tempo real dos jogadores; a
+ * concorrência otimista garante que só uma delas aplica cada jogada.
+ */
+export async function runBots(code: string): Promise<boolean> {
+  const { result } = await mutateGame(code, (game, room) => {
+    if (room.status !== "PLAYING" || !isBotTurn(game)) return { result: false, changed: false };
+    const action = botAction(game);
+    const humansAlive = game.s.players.some((p) => p.alive && !p.bot);
+    const delay = humansAlive ? botDelay(action) : 150;
+    if (Date.now() - room.updatedAt.getTime() < delay) return { result: false, changed: false };
+    const me = game.current;
+    let r = game.apply(action, me);
+    if (!r.ok) r = game.apply(fallbackAction(game), me);
+    return { result: r.ok, changed: r.ok };
+  });
+  return result;
 }
 
 export function errorResponse(err: unknown): Response {

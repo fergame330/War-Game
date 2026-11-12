@@ -50,6 +50,8 @@ export interface Player {
   status: PlayerStatus;
   team: number;
   userId?: string;
+  /** Jogador controlado pelo computador (src/lib/game/bot.ts). */
+  bot?: boolean;
 }
 
 export interface Pool {
@@ -220,9 +222,12 @@ export interface NewGameOptions {
   rng?: Rng;
   /** Nomes dos jogadores na ordem dos assentos (modo online). Sem nomes, usa o nome da cor. */
   names?: string[];
-  userIds?: string[];
+  /** Usuário de cada jogador informado (undefined para bots). */
+  userIds?: (string | undefined)[];
   /** Equipe de cada jogador informado (mesma ordem de names/userIds). Sem isto, as equipes são sorteadas. */
   teams?: number[];
+  /** Quais jogadores informados são bots (mesma ordem de names/userIds; sem names, a ordem é sorteada). */
+  bots?: boolean[];
 }
 
 // ------------------------------------------------------------------ motor
@@ -270,17 +275,21 @@ export class Game {
       );
       teamOf = Array.from({ length: numPlayers }, (_, i) => i % numTeams);
     }
-    const players: Player[] = colors.map((c, i) => ({
-      index: i,
-      name: opts.names ? opts.names[seats[i]] : c.name,
-      userId: opts.userIds ? opts.userIds[seats[i]] : undefined,
-      color: c.hex,
-      textColor: c.text,
-      cards: [],
-      alive: true,
-      status: 'playing',
-      team: teamOf[i],
-    }));
+    const players: Player[] = colors.map((c, i) => {
+      const bot = !!opts.bots?.[seats[i]];
+      return {
+        index: i,
+        name: opts.names ? opts.names[seats[i]] : bot ? 'Bot ' + c.name : c.name,
+        userId: opts.userIds ? opts.userIds[seats[i]] : undefined,
+        color: c.hex,
+        textColor: c.text,
+        cards: [],
+        alive: true,
+        status: 'playing',
+        team: teamOf[i],
+        ...(bot ? { bot: true } : {}),
+      };
+    });
 
     const owner = {} as Record<TerritoryId, number>;
     const armies = {} as Record<TerritoryId, number>;
@@ -1107,9 +1116,14 @@ export class Game {
     return true;
   }
 
+  /**
+   * Votos necessários para a equipe desistir: metade + 1 dos jogadores vivos. Bots não votam:
+   * numa equipe com humanos, contam só os humanos (os bots acompanham a decisão deles).
+   */
   surrenderThreshold(team: number): number {
-    const alive = this.teamMembers(team).filter((m) => m.alive).length;
-    return Math.floor(alive / 2) + 1;
+    const alive = this.teamMembers(team).filter((m) => m.alive);
+    const humans = alive.filter((m) => !m.bot).length;
+    return Math.floor((humans || alive.length) / 2) + 1;
   }
 
   /** Voto de desistência (metade + 1 da equipe precisa votar). */
@@ -1117,6 +1131,7 @@ export class Game {
     const s = this.s;
     const pl = s.players[p];
     if (!pl.alive) return { ok: false, reason: 'Você não está mais na partida.' };
+    if (pl.bot) return { ok: false, reason: 'Bots não votam.' };
     const team = pl.team;
     const votes = new Set(s.surrenderVotes[team] ?? []);
     if (vote) votes.add(p);

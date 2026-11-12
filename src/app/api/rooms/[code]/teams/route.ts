@@ -6,8 +6,8 @@ import { buildPayload, errorResponse, HttpError, loadRoom, readJson, requireUser
 interface TeamsBody {
   /** true = equipes sorteadas ao iniciar; false = o dono define */
   randomTeams?: boolean;
-  /** Coloca um jogador numa equipe (null = sem equipe) */
-  assign?: { userId: string; team: number | null };
+  /** Coloca um jogador (id do jogador na sala, humano ou bot) numa equipe (null = sem equipe) */
+  assign?: { playerId: string; team: number | null };
   /** Distribui todos os jogadores aleatoriamente entre as equipes (agora, no lobby) */
   shuffle?: boolean;
 }
@@ -24,7 +24,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/rooms/[code
     const { teamSize, numTeams } = teamInfo(room.mode);
     if (!numTeams) throw new HttpError(400, "Este modo não tem equipes.");
 
-    const teams = new Map(room.players.map((p) => [p.userId, p.team]));
+    const teams = new Map(room.players.map((p) => [p.id, p.team]));
     const countIn = (t: number) => [...teams.values()].filter((x) => x === t).length;
     let randomTeams = room.randomTeams;
 
@@ -32,11 +32,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/rooms/[code
       randomTeams = body.randomTeams;
       if (!randomTeams) {
         // ao passar a escolher, quem ainda está sem equipe vai para a equipe com vaga e menos jogadores
-        for (const [userId, team] of teams) {
+        for (const [id, team] of teams) {
           if (team !== null && team >= 0 && team < numTeams) continue;
           let best: number | null = null;
           for (let t = 0; t < numTeams; t++) if (countIn(t) < teamSize && (best === null || countIn(t) < countIn(best))) best = t;
-          teams.set(userId, best);
+          teams.set(id, best);
         }
       }
     }
@@ -52,21 +52,21 @@ export async function POST(request: Request, ctx: RouteContext<"/api/rooms/[code
     }
 
     if (body.assign) {
-      const { userId, team } = body.assign;
-      if (!teams.has(userId)) throw new HttpError(404, "Jogador não está na sala.");
+      const { playerId, team } = body.assign;
+      if (!teams.has(playerId)) throw new HttpError(404, "Jogador não está na sala.");
       if (team !== null && (!Number.isInteger(team) || team < 0 || team >= numTeams)) throw new HttpError(400, "Equipe inválida.");
-      if (team !== null && teams.get(userId) !== team && countIn(team) >= teamSize) {
+      if (team !== null && teams.get(playerId) !== team && countIn(team) >= teamSize) {
         throw new HttpError(409, `A Equipe ${TEAM_LETTERS[team]} já tem ${teamSize} jogadores.`);
       }
       randomTeams = false;
-      teams.set(userId, team);
+      teams.set(playerId, team);
     }
 
     await db().$transaction([
       db().room.update({ where: { id: room.id }, data: { randomTeams, version: { increment: 1 } } }),
       ...room.players
-        .filter((p) => teams.get(p.userId) !== p.team)
-        .map((p) => db().roomPlayer.update({ where: { id: p.id }, data: { team: teams.get(p.userId) ?? null } })),
+        .filter((p) => teams.get(p.id) !== p.team)
+        .map((p) => db().roomPlayer.update({ where: { id: p.id }, data: { team: teams.get(p.id) ?? null } })),
     ]);
     return Response.json(buildPayload(await loadRoom(code), user.id));
   } catch (err) {

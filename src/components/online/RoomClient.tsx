@@ -162,16 +162,21 @@ function Lobby({
     : null;
   const canStart = count >= room.minPlayers && count <= room.capacity && !teamProblem;
 
-  const setTeams = async (body: object) => {
+  const post = async (path: "teams" | "bots", body: object) => {
     setBusy(true);
     try {
-      onUpdate(await api<RoomPayload>(`/api/rooms/${room.code}/teams`, { body }));
+      onUpdate(await api<RoomPayload>(`/api/rooms/${room.code}/${path}`, { body }));
     } catch (e) {
       toast((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const setTeams = (body: object) => post("teams", body);
+  const addBot = (team?: number) => post("bots", { add: team === undefined ? {} : { team } });
+  const removeBot = (id: string) => post("bots", { remove: id });
+  const free = room.capacity - count;
+  const botCount = room.players.filter((p) => p.bot).length;
 
   const start = async () => {
     setBusy(true);
@@ -258,7 +263,13 @@ function Lobby({
           </div>
         )}
         {chooseTeams && (
-          <TeamsBoard room={room} editable={amHost && !busy} onAssign={(userId, team) => setTeams({ assign: { userId, team } })} />
+          <TeamsBoard
+            room={room}
+            editable={amHost && !busy}
+            onAssign={(playerId, team) => setTeams({ assign: { playerId, team } })}
+            onAddBot={addBot}
+            onRemoveBot={removeBot}
+          />
         )}
 
         {!chooseTeams && (
@@ -269,11 +280,22 @@ function Lobby({
         </h3>
         <ul className="grid gap-1.5 text-left">
           {room.players.map((p) => (
-            <li key={p.userId} className="flex items-center gap-2 rounded-lg bg-panel-2 px-3 py-2">
-              <span className={`size-2.5 rounded-full ${p.online ? "bg-ok" : "bg-danger"}`} title={p.online ? "Conectado" : "Desconectado"} />
+            <li key={p.id} className="flex items-center gap-2 rounded-lg bg-panel-2 px-3 py-2">
+              {p.bot ? (
+                <span className="text-sm leading-none" title="Bot (jogado pelo servidor)">
+                  🤖
+                </span>
+              ) : (
+                <span className={`size-2.5 rounded-full ${p.online ? "bg-ok" : "bg-danger"}`} title={p.online ? "Conectado" : "Desconectado"} />
+              )}
               <b>{p.username}</b>
               {p.userId === room.myUserId && <span className="text-xs text-muted">(você)</span>}
               {p.isHost && <span className="ml-auto text-xs text-accent">dono da sala</span>}
+              {p.bot && amHost && (
+                <button className="btn btn-sm btn-ghost ml-auto" disabled={busy} onClick={() => removeBot(p.id)}>
+                  Tirar
+                </button>
+              )}
             </li>
           ))}
           {flexible ? (
@@ -291,6 +313,23 @@ function Lobby({
           )}
         </ul>
           </>
+        )}
+
+        {amHost && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <button className="btn btn-sm btn-ghost" disabled={busy || full} onClick={() => addBot()}>
+              🤖 Adicionar bot
+            </button>
+            <button className="btn btn-sm btn-ghost" disabled={busy || full} onClick={() => post("bots", { fill: true })}>
+              {full ? "Sala cheia" : `Completar com bots (${free})`}
+            </button>
+          </div>
+        )}
+        {(amHost || botCount > 0) && (
+          <p className="mt-2 text-xs text-muted">
+            Bots são jogados pelo servidor: dominam continentes, reforçam fronteiras e caçam cartas.
+            {amHost && " Coloque quantos precisar para preencher as vagas."}
+          </p>
         )}
 
         <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -331,12 +370,31 @@ function Lobby({
   );
 }
 
-/** Quadro das equipes no lobby: quem criou a sala move cada jogador pelo seletor. */
-function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable: boolean; onAssign: (userId: string, team: number | null) => void }) {
+/** Quadro das equipes no lobby: quem criou a sala move cada jogador pelo seletor e coloca bots. */
+function TeamsBoard({
+  room,
+  editable,
+  onAssign,
+  onAddBot,
+  onRemoveBot,
+}: {
+  room: RoomPayload;
+  editable: boolean;
+  onAssign: (playerId: string, team: number | null) => void;
+  onAddBot: (team: number) => void;
+  onRemoveBot: (playerId: string) => void;
+}) {
   const teams = Array.from({ length: room.numTeams }, (_, t) => t);
+  const roomFull = room.players.length >= room.capacity;
   const row = (p: RoomPlayerView) => (
-    <li key={p.userId} className="flex items-center gap-2 rounded-md bg-panel px-2 py-1.5 text-[13px]">
-      <span className={`size-2 flex-none rounded-full ${p.online ? "bg-ok" : "bg-danger"}`} />
+    <li key={p.id} className="flex items-center gap-2 rounded-md bg-panel px-2 py-1.5 text-[13px]">
+      {p.bot ? (
+        <span className="flex-none text-xs leading-none" title="Bot">
+          🤖
+        </span>
+      ) : (
+        <span className={`size-2 flex-none rounded-full ${p.online ? "bg-ok" : "bg-danger"}`} />
+      )}
       <span className="min-w-0 flex-1 truncate font-semibold">
         {p.username}
         {p.userId === room.myUserId && <span className="ml-1 font-normal text-muted">(você)</span>}
@@ -347,7 +405,7 @@ function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable:
           title="Mover para a equipe (— = sem equipe)"
           value={p.team ?? ""}
           aria-label={`Equipe de ${p.username}`}
-          onChange={(e) => onAssign(p.userId, e.target.value === "" ? null : Number(e.target.value))}
+          onChange={(e) => onAssign(p.id, e.target.value === "" ? null : Number(e.target.value))}
         >
           {teams.map((t) => (
             <option key={t} value={t} disabled={p.team !== t && room.players.filter((x) => x.team === t).length >= room.teamSize}>
@@ -356,6 +414,11 @@ function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable:
           ))}
           <option value="">—</option>
         </select>
+      )}
+      {editable && p.bot && (
+        <button className="flex-none cursor-pointer px-1 text-base leading-none text-muted hover:text-danger" title="Tirar bot" onClick={() => onRemoveBot(p.id)}>
+          ×
+        </button>
       )}
     </li>
   );
@@ -373,11 +436,16 @@ function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable:
                   {members.length}/{room.teamSize}
                 </span>
               </div>
-              <ul className="grid gap-1">
+              <ul className="grid grid-cols-1 gap-1">
                 {members.map(row)}
                 {Array.from({ length: Math.max(0, room.teamSize - members.length) }, (_, i) => (
-                  <li key={`v${i}`} className="rounded-md border border-dashed border-line px-2 py-1.5 text-xs text-muted">
+                  <li key={`v${i}`} className="flex items-center rounded-md border border-dashed border-line px-2 py-1.5 text-xs text-muted">
                     vaga livre
+                    {editable && !roomFull && (
+                      <button className="ml-auto cursor-pointer font-semibold text-accent hover:underline" onClick={() => onAddBot(t)}>
+                        + Bot
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -388,7 +456,7 @@ function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable:
       {unassigned.length > 0 && (
         <div className="mt-2 rounded-lg border border-dashed border-line p-2">
           <div className="mb-1 text-xs font-bold text-muted">Sem equipe</div>
-          <ul className="grid gap-1">{unassigned.map(row)}</ul>
+          <ul className="grid grid-cols-1 gap-1">{unassigned.map(row)}</ul>
         </div>
       )}
     </div>

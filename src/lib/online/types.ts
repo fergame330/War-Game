@@ -8,8 +8,13 @@ export const RECONNECT_WINDOW_MS = 3 * 60_000;
 export type RoomStatus = "LOBBY" | "PLAYING" | "FINISHED";
 
 export interface RoomPlayerView {
-  userId: string;
+  /** Id do jogador na sala (RoomPlayer). */
+  id: string;
+  /** Usuário humano; null para bots. */
+  userId: string | null;
   username: string;
+  /** Jogador controlado pelo servidor. */
+  bot: boolean;
   seat: number | null;
   online: boolean;
   /** Momento (ms, relógio do servidor) do último sinal recebido. */
