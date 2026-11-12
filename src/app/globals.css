@@ -1,0 +1,248 @@
+@import "tailwindcss";
+
+/* Telas pequenas: celular em pé (até 900px) ou deitado (até 520px de altura) */
+@custom-variant compact (@media (max-width: 900px), (max-height: 520px));
+@custom-variant portrait-compact (@media (max-width: 900px) and (orientation: portrait));
+
+@theme {
+  --color-bg: #0f1a26;
+  --color-panel: #172636;
+  --color-panel-2: #1f3247;
+  --color-line: #2c4560;
+  --color-ink: #e8eef5;
+  --color-muted: #9bb0c4;
+  --color-accent: #f0b429;
+  --color-accent-2: #ffd36e;
+  --color-danger: #e5534b;
+  --color-ok: #3fb950;
+  --color-ocean: #24527c;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  touch-action: manipulation;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-accent px-3.5 py-2 font-semibold text-[#1b1300] transition select-none hover:bg-accent-2 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-accent;
+  }
+  .btn-big {
+    @apply rounded-xl px-7 py-3.5 text-lg;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1.5 text-[13px] whitespace-nowrap compact:px-2 compact:text-xs;
+  }
+  .btn-ghost {
+    @apply border border-line bg-transparent text-ink hover:bg-panel-2 disabled:hover:bg-transparent;
+  }
+  .btn-danger {
+    @apply bg-danger text-white hover:bg-[#f0716a] disabled:hover:bg-danger;
+  }
+  .btn-ok {
+    @apply bg-ok text-white hover:bg-[#56d364] disabled:hover:bg-ok;
+  }
+  .btn-active {
+    @apply border-accent bg-panel-2 text-accent;
+  }
+  .panel {
+    @apply rounded-[10px] border border-line bg-panel-2 px-3 py-2.5;
+  }
+  .panel-title {
+    @apply mb-2 text-xs font-medium tracking-wider text-muted uppercase;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-panel-2 px-3 py-2 text-ink outline-none focus:border-accent;
+  }
+  .swatch {
+    @apply inline-block size-4 flex-none rounded-full border-2 border-black/50;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-panel-2 py-0.5 pr-2.5 pl-1 font-semibold;
+  }
+  .team-tag {
+    @apply ml-1 inline-block rounded-[5px] bg-accent/20 px-1.5 py-px text-[10px] font-extrabold text-accent;
+  }
+}
+
+/* ---------- mapa (SVG) ---------- */
+.map-svg {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.map-svg.panning {
+  cursor: grabbing;
+}
+.terr {
+  stroke: rgba(10, 20, 30, 0.75);
+  stroke-width: 0.7;
+  stroke-linejoin: round;
+  cursor: pointer;
+  transition:
+    fill 0.25s,
+    filter 0.2s;
+}
+.terr:hover {
+  filter: brightness(1.15);
+}
+.terr.dim {
+  filter: brightness(0.68) saturate(0.7);
+}
+.terr.selected {
+  stroke: #fff;
+  stroke-width: 2.5;
+}
+.terr.target {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+}
+.terr.placeable {
+  stroke: #fff;
+  stroke-width: 1.2;
+}
+.terr.pending {
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-dasharray: 4 3;
+}
+.continent-outline {
+  fill: none;
+  stroke: rgba(8, 14, 22, 0.9);
+  stroke-width: 1.8;
+  pointer-events: none;
+  stroke-linejoin: round;
+}
+.sea-line {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  fill: none;
+  pointer-events: none;
+}
+.grid-line {
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 1;
+  fill: none;
+}
+.leader {
+  stroke: rgba(255, 255, 255, 0.8);
+  stroke-width: 0.9;
+  pointer-events: none;
+}
+.badge {
+  cursor: pointer;
+}
+.badge .bc {
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 1.5;
+}
+.badge .bt {
+  font-weight: 800;
+  font-size: 14px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.badge.pending .bc {
+  stroke: #fff;
+  stroke-dasharray: 3 2;
+  stroke-width: 1.6;
+}
+.badge.selected .bc {
+  stroke: #fff;
+  stroke-width: 2.6;
+}
+.badge.target .bc {
+  stroke: var(--color-accent);
+  stroke-width: 2.4;
+}
+.badge.placed .bc {
+  stroke: #fff;
+  stroke-width: 2.4;
+}
+.vassal-ring {
+  fill: none;
+  stroke-width: 3.5;
+  stroke-dasharray: 4 2.5;
+  pointer-events: none;
+}
+.tname {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-anchor: middle;
+  fill: #0d1620;
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 2.6px;
+  paint-order: stroke;
+  pointer-events: none;
+}
+.map-svg.no-names .tname,
+.map-svg.far .tname {
+  display: none;
+}
+.wrap-label {
+  font-size: 9px;
+  fill: rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  font-weight: 600;
+}
+.terr.flash {
+  animation: flash 0.6s ease-out;
+}
+@keyframes flash {
+  0% {
+    filter: brightness(2.2);
+  }
+  100% {
+    filter: none;
+  }
+}
+
+/* ---------- dados ---------- */
+.die {
+  animation: roll 0.35s ease-out;
+}
+@keyframes roll {
+  0% {
+    transform: rotate(-200deg) scale(0.4);
+    opacity: 0;
+  }
+  100% {
+    transform: rotate(0) scale(1);
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade 0.15s ease-out;
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.toast-in {
+  animation: toast-in 0.25s ease-out;
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
