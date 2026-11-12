@@ -41,9 +41,6 @@ npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Na
 Dica: para muitas partidas simultâneas, use a URL de conexão **com pool** do seu provedor (por exemplo o endpoint
 "pooled" do Prisma Postgres ou do Neon) em `DATABASE_URL`.
 
-> O workflow `.github/workflows/jekyll-gh-pages.yml` (GitHub Pages) é da versão estática antiga e não publica o
-> app Next.js; a hospedagem agora é a Vercel.
-
 ## Como funciona o online
 
 - **Contas**: usuário + senha (hash com scrypt). A sessão é um token aleatório num cookie `httpOnly`; o banco
