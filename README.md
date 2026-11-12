@@ -1,39 +1,90 @@
 # Guerra Mundial
 
-Jogo de estratégia por turnos no estilo "conquiste o mundo", feito com HTML, CSS e JavaScript puros
-(sem frameworks e sem build). Vários jogadores jogam no mesmo computador, passando a vez.
+Jogo de estratégia por turnos no estilo "conquiste o mundo", feito com **Next.js 16 (App Router) + React 19 +
+TypeScript (TSX) + Tailwind CSS 4 + ESLint**, banco **PostgreSQL** com **Prisma ORM 7** e pronto para a **Vercel**.
 
-## Como jogar
+- **No mesmo aparelho**: todos jogam no mesmo navegador, passando a vez (individual de 2 a 9, duplas, trios e
+  quartetos).
+- **Online**: contas com usuário e senha, salas com código, partidas em tempo real nos modos **1x1, 2x2, 2x2x2,
+  2x2x2x2, 3x3, 3x3x3 e 4x4**.
 
-Abra o `index.html` no navegador (duplo clique já funciona). Também dá para servir a pasta:
+## Rodar localmente
+
+Requisitos: Node.js 22+ e um PostgreSQL.
 
 ```bash
-python3 -m http.server 8000   # depois acesse http://localhost:8000
+npm install                      # também gera o Prisma Client (postinstall)
+cp .env.example .env             # ajuste DATABASE_URL
+npx prisma migrate dev           # cria as tabelas
+npm run dev                      # http://localhost:3000
 ```
 
-1. **Começar jogo** → escolha o modo (individual, duplas, trios ou quartetos) e o número de jogadores.
-2. As cores e a ordem são sorteadas e os 79 territórios são divididos igualmente; os primeiros da ordem
-   ficam com o que sobrar da divisão. Cada território começa com 1 exército.
-3. Quem começa com um continente inteiro coloca o bônus dele nesse continente.
-4. Cada jogador recebe metade dos exércitos que tem (arredondado para baixo) para colocar onde quiser.
-5. Cada rodada tem as etapas abaixo. **Em cada etapa todos os jogadores agem, na ordem, antes da próxima**
-   (todos atacam; depois todos fazem a passagem; e assim por diante):
-   - **Reforços** (a partir da 2ª rodada): primeiro todos colocam o bônus de cada continente dominado (no
-     próprio continente); depois todos colocam o bônus de territórios (metade do número de territórios).
-   - **Ataque**: o atacante rola `exércitos − 1` dados, o defensor `exércitos` (máximo de 3 cada). Os dados são
-     comparados do maior para o menor e o empate é da defesa. O território conquistado fica com 0 exércitos até
-     você clicar nele e enviar de 1 a 3. Você pode continuar atacando com o mesmo território enquanto, mesmo
-     perdendo a batalha, sobrarem exércitos para ocupar todos os territórios que ele conquistou + 1.
-   - **Passagem**: só para vizinhos, e só com os exércitos que já estavam no território no início da passagem.
-     Dentro de um continente que é todo seu a movimentação é livre. Quem não tem o que passar é pulado.
-   - **Cartas**: depois da passagem de todos, quem conquistou ao menos 1 território ganha 1 carta (bolinha,
-     quadrado, triângulo, estrela ou coringa) com um território aleatório.
-   - **Trocas**: 4 cartas do mesmo naipe (o coringa vale por qualquer um) valem 4, 6, 8, 10, 12, 15, 20, 25,
-     30, 35, 40… exércitos, contando as trocas de todos os jogadores. Cada carta com um território seu dá +3
-     exércitos nele. Quem não tem troca possível é pulado.
-6. Quem elimina um jogador recebe as cartas dele. Vence quem dominar o mundo.
+Outros comandos:
 
-### Bônus dos continentes
+```bash
+npm run lint        # ESLint
+npm run typecheck   # TypeScript
+npm test            # testes do motor do jogo (Vitest)
+npm run build       # build de produção
+npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Natural Earth
+```
+
+## Publicar na Vercel
+
+1. Importe o repositório na Vercel (framework detectado: Next.js).
+2. Crie o banco: em **Storage → Marketplace**, adicione **Prisma Postgres** (ou Neon) e conecte ao projeto. A
+   integração cria a variável `DATABASE_URL`. Se usar outro PostgreSQL, crie `DATABASE_URL` manualmente em
+   **Settings → Environment Variables**.
+3. Faça o deploy. O script `vercel-build` roda `prisma generate`, aplica as migrações (`prisma migrate deploy`) e
+   faz o `next build`.
+
+Dica: para muitas partidas simultâneas, use a URL de conexão **com pool** do seu provedor (por exemplo o endpoint
+"pooled" do Prisma Postgres ou do Neon) em `DATABASE_URL`.
+
+> O workflow `.github/workflows/jekyll-gh-pages.yml` (GitHub Pages) é da versão estática antiga e não publica o
+> app Next.js; a hospedagem agora é a Vercel.
+
+## Como funciona o online
+
+- **Contas**: usuário + senha (hash com scrypt). A sessão é um token aleatório num cookie `httpOnly`; o banco
+  guarda só o hash do token.
+- **Salas**: quem cria escolhe o modo e se o **tempo de reconexão** fica ligado; recebe um código de 6 letras.
+  Os outros entram pelo código (ou pelo link). O dono inicia quando a sala está cheia; cores, ordem, equipes e
+  territórios são sorteados.
+- **Servidor autoritativo**: o estado da partida fica no PostgreSQL (`Room.state`, JSON). Cada jogada é enviada
+  para `POST /api/rooms/[código]/action`, validada pelo mesmo motor do jogo e gravada com **concorrência
+  otimista** (campo `version`). As cartas dos outros jogadores nunca são enviadas ao navegador, só a quantidade.
+- **Tempo real**: `GET /api/rooms/[código]/events` é um stream **Server-Sent Events**. Ele verifica a versão da
+  sala a cada ~1 s e envia o estado novo a todos assim que alguém joga. A conexão fecha antes do limite de
+  duração das funções da Vercel e o navegador reconecta sozinho, sem precisar de serviço extra (WebSocket, Pusher
+  etc.).
+- **Presença e reconexão**: a conexão em tempo real registra presença a cada 5 s. Sem sinal por 15 s o jogador
+  aparece como desconectado e todos veem um contador de **3 minutos**; se ele voltar, o contador some. Se o prazo
+  acabar, há **dissolução**: os territórios dele vão para os aliados (sem aliados, para os inimigos) e as cartas
+  são sorteadas, metade para aliados e metade para inimigos. A verificação roda a partir das conexões dos outros
+  jogadores, sem cron.
+- **Desistência**: qualquer jogador vota; quando **metade + 1** dos jogadores vivos da equipe votam, a equipe
+  desiste e seus territórios e cartas vão para a equipe inimiga com menos territórios. O voto pode ser retirado.
+
+## Regras
+
+1. Cores e ordem são sorteadas; os 79 territórios são divididos igualmente e os primeiros da ordem ficam com o
+   resto. Cada território começa com 1 exército.
+2. Quem começa com um continente inteiro coloca o bônus dele nesse continente; depois cada jogador recebe metade
+   dos exércitos que tem (para baixo).
+3. Cada rodada tem as etapas abaixo. **Em cada etapa todos os jogadores agem, na ordem, antes da próxima**:
+   - **Reforços** (a partir da 2ª rodada): primeiro todos colocam o bônus dos continentes dominados (no próprio
+     continente); depois todos colocam o bônus de territórios (metade do número de territórios).
+   - **Ataque**: o atacante rola `exércitos − 1` dados e o defensor `exércitos` (máximo de 3 cada); os dados são
+     comparados do maior para o menor e o empate é da defesa. O território conquistado fica vazio até você enviar
+     de 1 a 3 exércitos. Dá para continuar atacando com o mesmo território enquanto, mesmo perdendo a batalha,
+     sobrarem exércitos para ocupar o que ele conquistou + 1.
+   - **Passagem**: só para vizinhos e só com os exércitos que já estavam no território no início da passagem;
+     dentro de um continente que é todo seu a movimentação é livre.
+   - **Cartas**: depois da passagem de todos, quem conquistou ao menos 1 território ganha 1 carta.
+   - **Trocas**: 4 cartas do mesmo naipe (coringa vale por qualquer um) valem 4, 6, 8, 10, 12, 15, 20, 25, 30…
+     exércitos; cada carta com território seu dá +3 nele.
+4. Quem elimina um jogador recebe as cartas dele. Vence quem dominar o mundo.
 
 | Continente | Bônus | | Continente | Bônus |
 |---|---|---|---|---|
@@ -43,92 +94,38 @@ python3 -m http.server 8000   # depois acesse http://localhost:8000
 | África | 5 | | Oceania | 2 |
 | Arctogea (Ártico + Antártida) | 1 | | | |
 
-### Modos de equipe
+### Equipes
 
-| Modo | Jogadores | Ordem dos turnos |
-|---|---|---|
-| Duplas | 4, 6 ou 8 | A B A B · A B C A B C · A B C D A B C D |
-| Trios | 6 ou 9 | A B A B A B · A B C A B C A B C |
-| Quartetos | 8 | A B A B A B A B |
-
-Ninguém da mesma equipe joga em turnos seguidos. O jogo é igual ao individual, com estas mudanças:
+Duplas (4, 6 ou 8 jogadores), trios (6 ou 9) e quartetos (8). A ordem alterna as equipes (A B C A B C…), então
+ninguém da mesma equipe joga em seguida.
 
 - Aliados não se atacam.
-- **Passagem para aliado**: chega a metade dos exércitos enviados (arredondando para baixo).
-- **Enviar carta**: dá para mandar uma carta específica a um aliado, mas outra carta aleatória da mão é
-  descartada (é preciso ter pelo menos 2 cartas).
-- **Vassalagem** (na passagem ou na colocação de exércitos): um território seu passa a ser controlado por um
-  aliado e perde metade dos exércitos (o que fica é arredondado para cima). É preciso manter pelo menos 1
-  território próprio. O aliado pode atacar, colocar e passar exércitos com ele, mas não pode vassalá-lo nem
-  devolvê-lo. O território continua contando para o dono original na contagem de territórios (bônus). O dono
-  original pode retomá-lo na própria vez, sem recuperar os exércitos (só não pode retomar o último território
-  do aliado, o que o eliminaria). No mapa, o vassalo tem um anel tracejado na cor do dono original.
-- **Continente** só é dominado se todos os territórios forem de um único jogador; para juntar um continente
-  dividido entre aliados, use vassalagem.
-- **Eliminação**: metade das cartas do eliminado (arredondada para cima) vai para quem o eliminou e o resto é
-  sorteado, carta por carta, entre os aliados dele (se não houver aliados vivos, vão todas para quem eliminou).
-- Vence a equipe que eliminar todas as outras.
+- **Passagem para aliado**: chega a metade dos exércitos enviados (para baixo).
+- **Enviar carta** a um aliado: outra carta aleatória da mão é descartada (é preciso ter 2 cartas).
+- **Vassalagem** (na passagem ou na colocação): um território seu passa a ser do aliado, ficando com metade dos
+  exércitos (para cima). Mantenha pelo menos 1 território próprio. O vassalo conta para o dono original no bônus
+  de territórios; só o dono original pode retomá-lo (sem recuperar exércitos).
+- Continente só é dominado por um único jogador.
+- Eliminação: metade das cartas (para cima) para quem eliminou, o resto sorteado entre os aliados do eliminado.
 
-As ações de equipe ficam no botão **👥 Equipe** do painel do turno.
+### Prompt para IA
 
-### Controles
-
-- Roda do mouse / pinça ou botões **+ / −** para zoom; arraste para mover o mapa.
-- Colocação: clique no território para adicionar (escolha +1, +5, +10 ou Todos); botão direito remove.
-- Ataque: clique no seu território e depois no inimigo vizinho (ou clique direto no inimigo para usar o seu
-  vizinho mais forte). "Atacar até conquistar" repete os ataques automaticamente.
-- Passe o mouse sobre um território para ver dono, exércitos e fronteiras (inclusive as marítimas,
-  desenhadas com linhas tracejadas).
-
-### Jogar com uma IA
-
-Na vez de qualquer jogador, o botão **🤖 Baixar prompt p/ IA** (no painel do turno e na troca de cartas) baixa
-um arquivo `.txt` com todas as regras, o estado do mundo (jogadores, continentes, territórios, exércitos e
-fronteiras), os dados do jogador da vez (territórios, cartas) e as ações possíveis naquele momento. O prompt
-pede para a IA responder **apenas a ação da vez** num formato fixo, por exemplo:
-
-```
-COLOCAR
-Brasil: 3
-Argentina: 2
-```
-
-```
-ATACAR Brasil -> Gana
-```
-
-Envie o arquivo (ou use **Copiar**) para a IA e aplique no tabuleiro a ação que ela responder. No ataque, cada
-batalha depende dos dados, então gere um novo prompt depois de cada ação.
+Na sua vez, **🤖 Baixar prompt p/ IA** (ou **Copiar**) gera um texto com as regras, o estado do mundo, seus dados
+e as ações possíveis, pedindo que a IA responda apenas a ação da vez num formato fixo.
 
 ## Estrutura
 
 ```
-index.html          telas e layout
-css/style.css       visual
-js/data.js          continentes, territórios e fronteiras
-js/mapdata.js       caminhos SVG do mapa (gerado)
-js/game.js          regras do jogo (sem DOM)
-js/ai-prompt.js     gera o prompt para uma IA jogar a vez (sem DOM)
-js/ui.js            mapa interativo, painéis e modais
-tools/build-map.js  gera js/mapdata.js a partir do Natural Earth
-tests/simulate.js   simula partidas aleatórias verificando as regras
+prisma/schema.prisma          modelos: User, Session, Room, RoomPlayer
+prisma.config.ts              configuração do Prisma 7 (lê DATABASE_URL)
+src/lib/game/                 motor do jogo (sem React): data.ts, engine.ts, aiPrompt.ts, mapdata.json
+src/lib/server/               servidor: db.ts (Prisma + adapter-pg), auth.ts, rooms.ts
+src/lib/online/               tipos e cliente da API
+src/app/api/                  rotas: auth/*, rooms/*, rooms/[code]/{join,leave,start,action,events}
+src/app/                      páginas: / (início), /local, /online, /sala/[code]
+src/components/game/          mapa (SVG com zoom), painéis, modais, GameView
+src/components/online/        login, salas, lobby
+tools/build-map.mjs           gera o mapa a partir do Natural Earth (world-atlas)
 ```
 
-### Mapa
-
-O mapa usa a geografia do [Natural Earth](https://www.naturalearthdata.com/) (domínio público, via pacote
-`world-atlas`). Países que não estão na lista do jogo foram incorporados a territórios vizinhos — por
-exemplo, Saara = Saara Ocidental, Mauritânia, Mali e Níger; Iugoslávia inclui a Romênia; Israel inclui
-Líbano, Palestina, Jordânia e Síria; Islândia faz parte da Groenlândia. A lista completa está em
-`tools/build-map.js` (`COUNTRY_TO_TERRITORY`). Para regenerar:
-
-```bash
-cd tools && npm install && npm run build-map
-```
-
-### Testes
-
-```bash
-node tests/simulate.js      # simula partidas (individuais e em equipe) e confere as regras/invariantes
-node tests/teams.js         # testes das regras dos modos de equipe
-```
+Geografia: [Natural Earth](https://www.naturalearthdata.com/) (domínio público), via `world-atlas`.

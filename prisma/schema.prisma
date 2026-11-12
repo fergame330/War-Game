@@ -1,0 +1,74 @@
+// Banco do Guerra Mundial (PostgreSQL via Prisma ORM 7).
+// Depois de alterar: npx prisma migrate dev --name <nome>
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String       @id @default(cuid())
+  username     String       @unique
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  sessions     Session[]
+  roomPlayers  RoomPlayer[]
+  hostedRooms  Room[]       @relation("RoomHost")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum RoomStatus {
+  LOBBY
+  PLAYING
+  FINISHED
+}
+
+model Room {
+  id             String       @id @default(cuid())
+  code           String       @unique
+  /// Modo online: 1x1, 2x2, 2x2x2, 2x2x2x2, 3x3, 3x3x3 ou 4x4
+  mode           String
+  status         RoomStatus   @default(LOBBY)
+  /// Jogadores desconectados têm 3 minutos para voltar antes da dissolução
+  reconnectTimer Boolean      @default(true)
+  hostId         String
+  host           User         @relation("RoomHost", fields: [hostId], references: [id])
+  /// Estado completo da partida (motor do jogo serializado)
+  state          Json?
+  /// Incrementado a cada mudança: usado para concorrência otimista e para avisar os clientes
+  version        Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  players        RoomPlayer[]
+
+  @@index([status])
+}
+
+model RoomPlayer {
+  id         String   @id @default(cuid())
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Índice do jogador na partida (definido ao iniciar)
+  seat       Int?
+  joinedAt   DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
