@@ -5,8 +5,8 @@ TypeScript (TSX) + Tailwind CSS 4 + ESLint**, banco **PostgreSQL** com **Prisma 
 
 - **No mesmo aparelho**: todos jogam no mesmo navegador, passando a vez (individual de 2 a 9, duplas, trios e
   quartetos).
-- **Online**: contas com usuário e senha, salas com código, partidas em tempo real nos modos **1x1, 2x2, 2x2x2,
-  2x2x2x2, 3x3, 3x3x3 e 4x4**.
+- **Online**: contas com usuário e senha, salas com código, partidas em tempo real nos modos **1x1** (todos contra
+  todos, de 2 a 9 jogadores), **2x2, 2x2x2, 2x2x2x2, 3x3, 3x3x3 e 4x4**.
 
 ## Rodar localmente
 
@@ -49,8 +49,8 @@ npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Na
 - **Contas**: usuário + senha (hash com scrypt). A sessão é um token aleatório num cookie `httpOnly`; o banco
   guarda só o hash do token.
 - **Salas**: quem cria escolhe o modo e se o **tempo de reconexão** fica ligado; recebe um código de 6 letras.
-  Os outros entram pelo código (ou pelo link). O dono inicia quando a sala está cheia; cores, ordem, equipes e
-  territórios são sorteados.
+  Os outros entram pelo código (ou pelo link). No 1x1 o dono inicia quando quiser, com 2 a 9 jogadores; nos modos
+  de equipe, quando a sala está cheia. Cores, ordem, equipes e territórios são sorteados.
 - **Servidor autoritativo**: o estado da partida fica no PostgreSQL (`Room.state`, JSON). Cada jogada é enviada
   para `POST /api/rooms/[código]/action`, validada pelo mesmo motor do jogo e gravada com **concorrência
   otimista** (campo `version`). As cartas dos outros jogadores nunca são enviadas ao navegador, só a quantidade.
@@ -111,7 +111,9 @@ ninguém da mesma equipe joga em seguida.
 ### Prompt para IA
 
 Na sua vez, **🤖 Baixar prompt p/ IA** (ou **Copiar**) gera um texto com as regras, o estado do mundo, seus dados
-e as ações possíveis, pedindo que a IA responda apenas a ação da vez num formato fixo.
+e as ações possíveis, pedindo que a IA responda apenas a ação da vez num formato fixo. O texto se adapta ao modo:
+individual ou equipes (regras de equipe, ações de vassalagem, envio de carta e passagem para aliado) e, no online,
+explica o tempo de reconexão e a desistência.
 
 ## Estrutura
 

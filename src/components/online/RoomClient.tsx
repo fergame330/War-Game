@@ -145,7 +145,10 @@ function Lobby({
   const [busy, setBusy] = useState(false);
   const mode = ONLINE_MODES[room.mode];
   const amHost = room.players.some((p) => p.isHost && p.userId === room.myUserId);
-  const full = room.players.length === room.capacity;
+  const count = room.players.length;
+  const full = count >= room.capacity;
+  const canStart = count >= room.minPlayers && count <= room.capacity;
+  const flexible = room.minPlayers !== room.capacity;
 
   const start = async () => {
     setBusy(true);
@@ -181,7 +184,9 @@ function Lobby({
   return (
     <Screen>
       <Box>
-        <div className="mb-1 text-xs tracking-wider text-muted uppercase">Sala {mode.label} · {mode.description}</div>
+        <div className="mb-1 text-xs tracking-wider text-muted uppercase">
+          Sala {mode.label} · {mode.description}
+        </div>
         <div className="font-mono text-5xl font-black tracking-[0.2em] text-accent compact:text-4xl">{room.code}</div>
         <div className="mt-2 flex justify-center gap-2">
           <button className="btn btn-sm btn-ghost" onClick={copyLink}>
@@ -189,12 +194,13 @@ function Lobby({
           </button>
         </div>
         <p className="mt-3 text-[13px] text-muted">
-          Compartilhe o código. As equipes, cores e a ordem são sorteadas ao iniciar.
+          Compartilhe o código. {mode.mode === "solo" ? "As cores e a ordem" : "As equipes, as cores e a ordem"} são sorteadas ao iniciar.
           {room.reconnectTimer ? " Tempo de reconexão: 3 minutos." : " Sem tempo de reconexão."}
         </p>
 
         <h3 className="mt-5 mb-2 text-left font-bold">
-          Jogadores ({room.players.length}/{room.capacity})
+          Jogadores ({count}/{room.capacity})
+          {flexible && <span className="ml-2 text-xs font-normal text-muted">mínimo {room.minPlayers} para iniciar</span>}
         </h3>
         <ul className="grid gap-1.5 text-left">
           {room.players.map((p) => (
@@ -205,11 +211,19 @@ function Lobby({
               {p.isHost && <span className="ml-auto text-xs text-accent">dono da sala</span>}
             </li>
           ))}
-          {Array.from({ length: room.capacity - room.players.length }, (_, i) => (
-            <li key={`vaga${i}`} className="rounded-lg border border-dashed border-line px-3 py-2 text-muted">
-              Vaga livre
-            </li>
-          ))}
+          {flexible ? (
+            !full && (
+              <li className="rounded-lg border border-dashed border-line px-3 py-2 text-muted">
+                {room.capacity - count} vaga(s) livre(s)
+              </li>
+            )
+          ) : (
+            Array.from({ length: room.capacity - count }, (_, i) => (
+              <li key={`vaga${i}`} className="rounded-lg border border-dashed border-line px-3 py-2 text-muted">
+                Vaga livre
+              </li>
+            ))
+          )}
         </ul>
 
         <div className="mt-5 flex flex-wrap justify-center gap-2">
@@ -219,8 +233,12 @@ function Lobby({
                 Sair da sala
               </button>
               {amHost ? (
-                <button className="btn btn-big" disabled={!full || busy} onClick={start}>
-                  {full ? "Iniciar partida" : `Aguardando ${room.capacity - room.players.length}…`}
+                <button className="btn btn-big" disabled={!canStart || busy} onClick={start}>
+                  {canStart
+                    ? flexible
+                      ? `Iniciar com ${count} jogadores`
+                      : "Iniciar partida"
+                    : `Aguardando ${room.minPlayers - count}…`}
                 </button>
               ) : (
                 <span className="self-center text-muted">Aguardando o dono da sala iniciar…</span>

@@ -9,27 +9,67 @@ import { Game, MODES, SHAPE_NAMES, STAGE_NAMES, cloneState, tradeValue, type Gam
 const tn = tName;
 const cn = cName;
 
+/** Onde a partida acontece (o prompt explica as regras do online quando for o caso). */
+export interface AiPromptContext {
+  online?: boolean;
+  reconnectTimer?: boolean;
+}
+
+function modeText(game: Game): string {
+  const n = game.s.players.length;
+  if (!game.s.teamMode) return `Individual (todos contra todos), ${n} jogadores`;
+  const m = MODES[game.s.mode];
+  return `${m.name}: ${game.s.numTeams} equipes de ${m.teamSize} (${n} jogadores)`;
+}
+
+const STATUS_TEXT = { playing: '', eliminated: 'ELIMINADO', dissolved: 'FORA (dissolução por desconexão)', surrendered: 'FORA (desistiu)' } as const;
+
 function teamRulesText(game: Game) {
   const m = MODES[game.s.mode];
-  return `## Modo de equipes (${m.name}: ${game.s.numTeams} equipes de ${m.teamSize})
+  return `## Regras das equipes (${m.name}: ${game.s.numTeams} equipes de ${m.teamSize})
 
 Valem todas as regras acima, com estas mudanças:
 - Jogadores da mesma equipe não podem se atacar. A ordem alterna as equipes, então ninguém da mesma equipe joga em turnos seguidos.
-- Na passagem é possível enviar exércitos para um território vizinho de um aliado, mas chega só a metade dos enviados, arredondando para baixo (envie pelo menos 2).
+- Na passagem é possível enviar exércitos para um território vizinho de um aliado (só os que podem cruzar fronteira), mas chega só a metade dos enviados, arredondando para baixo (envie pelo menos 2). Os exércitos que chegam passam a ser do aliado.
 - É possível enviar uma carta específica para um aliado, mas outra carta aleatória da sua mão (que não a enviada) é descartada. Por isso é preciso ter pelo menos 2 cartas.
 - Vassalagem: durante a passagem ou a colocação de exércitos você pode ceder um território seu para um aliado. Ele passa a ser controlado pelo aliado e perde metade dos exércitos (o que fica é arredondado para cima). Você precisa manter pelo menos 1 território próprio que não seja vassalo.
 - Territórios vassalos continuam contando como seus na contagem de territórios (bônus de territórios), mas são controlados pelo aliado, que pode atacar, colocar e passar exércitos com eles; o aliado não pode vassalá-los de novo nem devolvê-los.
 - O dono original pode retomar um território vassalo na própria vez, quando quiser, sem recuperar os exércitos perdidos (não é possível retomar o último território de um aliado).
 - Um continente só é dominado quando todos os seus territórios são controlados por um único jogador; se a equipe tem o continente dividido entre aliados, é preciso usar vassalagem para que um só membro o domine.
-- Quando um jogador é eliminado, metade das cartas dele (arredondada para cima) vai para quem o eliminou e o resto é sorteado, carta por carta, entre os aliados vivos dele.
-- Vence a equipe que eliminar todas as outras e dominar o mundo.`;
+- O bônus de territórios de cada jogador conta os territórios que ele controla, menos os que recebeu como vassalos, mais os que cedeu como vassalos.`;
 }
 
-function rulesText(): string {
+function onlineRulesText(game: Game, ctx: AiPromptContext): string {
+  const lines = ['## Regras da partida online'];
+  if (ctx.reconnectTimer) {
+    lines.push(
+      '- Quem se desconectar tem 3 minutos para voltar. Se não voltar, há dissolução: ' +
+        (game.s.teamMode ? 'os territórios dele vão para os aliados vivos (se não houver, para os inimigos)' : 'os territórios dele vão para os inimigos') +
+        ' e as cartas são sorteadas' + (game.s.teamMode ? ', metade (arredondada para cima) para os aliados e o resto para os inimigos.' : ' entre os inimigos.')
+    );
+  } else {
+    lines.push('- Esta sala não tem tempo de reconexão: quem se desconectar continua na partida e a vez dele espera a volta.');
+  }
+  lines.push(
+    '- Desistência: quando metade + 1 dos jogadores vivos de ' + (game.s.teamMode ? 'uma equipe' : 'um lado (no individual, o próprio jogador)') +
+      ' votam, ' + (game.s.teamMode ? 'a equipe desiste e seus territórios e cartas vão para a equipe inimiga com menos territórios.' : 'o jogador desiste e seus territórios e cartas vão para o adversário com menos territórios.'),
+    '- A desistência é decidida pelos jogadores humanos: você não vota nela, responda só a ação da vez.'
+  );
+  return lines.join('\n');
+}
+
+function rulesText(game: Game): string {
   const bonuses = Object.values(CONTINENTS).map((c) => c.name + ' +' + c.bonus).join(', ');
+  const objective = game.s.teamMode
+    ? `Objetivo: a sua equipe vence quando todas as outras equipes forem eliminadas, com todos os ${TERRITORY_IDS.length} territórios do mundo nas mãos da sua equipe.`
+    : `Objetivo: eliminar todos os outros jogadores e dominar todos os ${TERRITORY_IDS.length} territórios do mundo.`;
+  const eliminationCards = game.s.teamMode
+    ? '- Quem conquista o último território de um jogador o elimina: metade das cartas dele (arredondada para cima) vai para quem o eliminou e o resto é sorteado, carta por carta, entre os aliados vivos dele (sem aliados vivos, todas vão para quem eliminou).'
+    : '- Quem conquista o último território de um jogador o elimina e recebe todas as cartas dele.';
   return `## Regras do jogo "Guerra Mundial"
 
-Objetivo: eliminar todos os outros jogadores e dominar todos os ${TERRITORY_IDS.length} territórios do mundo.
+Modo desta partida: ${modeText(game)}.
+${objective}
 
 Início da partida:
 - Cores e ordem dos jogadores são sorteadas. Os territórios são divididos igualmente; quem vem primeiro na ordem fica com o resto da divisão.
@@ -66,9 +106,9 @@ Cartas e trocas:
 - O valor da troca depende de quantas trocas já foram feitas por todos os jogadores somados: 1ª = 4, 2ª = 6, 3ª = 8, 4ª = 10, 5ª = 12, 6ª = 15, 7ª = 20, 8ª = 25, 9ª = 30, 10ª = 35, 11ª = 40 e assim por diante (+5 por troca).
 - Cada carta trocada cujo território é seu dá +3 exércitos nesse território, automaticamente.
 - Os exércitos da troca são colocados onde o jogador quiser, nos seus territórios.
-- Quem conquista o último território de um jogador o elimina e recebe todas as cartas dele.
+${eliminationCards}
 
-Bônus dos continentes: ${bonuses}.`;
+Bônus dos continentes: ${bonuses}. A Arctogea junta o Ártico e a Antártida (polos opostos do mapa): quem domina os dois recebe o bônus e pode mover exércitos livremente entre eles. Os territórios de cada continente estão listados em "Territórios", abaixo.`;
 }
 
 function worldText(game: Game) {
@@ -76,14 +116,14 @@ function worldText(game: Game) {
   lines.push('### Jogadores (na ordem padrão)');
   game.s.players.forEach((pl, i) => {
     if (!pl.alive) {
-      lines.push(`${i + 1}. ${pl.name} — ELIMINADO`);
+      lines.push(`${i + 1}. ${pl.name}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''} — ${STATUS_TEXT[pl.status] || 'ELIMINADO'}`);
       return;
     }
     const conts = game.continentsOf(i).map(cn);
     lines.push(
       `${i + 1}. ${pl.name}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''}${i === game.s.current ? ' (VOCÊ)' : ''} — ` +
         `${game.territoryCount(i)} territórios` + (game.territoriesOf(i).length !== game.territoryCount(i) ? ` (controla ${game.territoriesOf(i).length})` : '') + ', ' +
-        `${game.totalArmies(i)} exércitos nos territórios que controla, ${pl.cards.length} carta(s)` +
+        `${game.totalArmies(i)} exércitos nos territórios que controla, ${game.cardCount(i)} carta(s)` +
         (conts.length ? `, domina: ${conts.join(', ')}` : '')
     );
   });
@@ -118,7 +158,7 @@ function playerText(game: Game) {
   const lines = [`## Seus dados (${pl.name})`];
   if (game.s.teamMode) {
     const allies = game.teamMembers(pl.team).filter((m) => m.index !== p);
-    lines.push(`Sua equipe: ${game.teamName(pl.team)}. Aliados: ` + allies.map((m) => m.name + (m.alive ? '' : ' (eliminado)')).join(', ') + '.');
+    lines.push(`Sua equipe: ${game.teamName(pl.team)}. Aliados: ` + allies.map((m) => m.name + (m.alive ? '' : ` (${(STATUS_TEXT[m.status] || 'eliminado').toLowerCase()})`)).join(', ') + '.');
     const given = game.myVassals();
     if (given.length) lines.push('Seus territórios cedidos como vassalos: ' + given.map((id) => `${tn(id)} (com ${game.s.players[game.s.owner[id]].name}, ${game.s.armies[id]})`).join(', ') + '.');
   }
@@ -137,6 +177,10 @@ function playerText(game: Game) {
     lines.push('Suas cartas: nenhuma');
   }
   lines.push(`Trocas já feitas (todos os jogadores): ${game.s.tradeCount}. A próxima troca vale ${tradeValue(game.s.tradeCount + 1)} exércitos.`);
+  const votes = game.s.surrenderVotes[pl.team] ?? [];
+  if (votes.length) {
+    lines.push(`Votos de desistência ${game.s.teamMode ? 'da sua equipe' : 'seus'}: ${votes.length}/${game.surrenderThreshold(pl.team)} (decisão dos jogadores humanos).`);
+  }
   if (game.stage === 'attack' || game.stage === 'move') {
     lines.push('Você ' + (game.conqueredThisTurn ? 'já conquistou' : 'ainda não conquistou') + ' território nesta rodada' +
       (game.conqueredThisTurn ? ' (vai ganhar 1 carta depois da passagem).' : '.'));
@@ -215,7 +259,11 @@ function moveAction(game: Game) {
         (game.isAllyMove(from, t) ? `, aliado ${game.s.players[game.s.owner[t]].name}: chega metade` : '') + ')').join(', '));
   }
   if (!any) lines.push('- nenhuma');
-  lines.push('', 'Você pode fazer várias passagens nesta mesma resposta, respeitando as regras (exércitos que chegaram não podem cruzar outra fronteira; sempre fica 1 em cada território).',
+  lines.push('', 'Você pode fazer várias passagens nesta mesma resposta, respeitando as regras (exércitos que chegaram não podem cruzar outra fronteira; sempre fica 1 em cada território).');
+  if (game.s.teamMode && game.alliesOf(p).length) {
+    lines.push('Para enviar a um aliado, use a mesma linha com o território vizinho dele como destino: chega a metade (arredondada para baixo) e é preciso enviar pelo menos 2.');
+  }
+  lines.push(
     'Formato da resposta:', '```', 'PASSAGEM', '<quantidade> de <origem> para <destino>', '<quantidade> de <origem> para <destino>', 'FIM', '```',
     'ou, se não quiser passar nada:', '```', 'NENHUMA PASSAGEM', '```');
   return lines.join('\n');
@@ -272,19 +320,20 @@ export function canBuildAiPrompt(state: GameState | null): boolean {
   return !!state && state.current >= 0 && state.stage !== 'over';
 }
 
-export function buildAiPrompt(state: GameState): string {
+export function buildAiPrompt(state: GameState, ctx: AiPromptContext = {}): string {
   const game = Game.load(cloneState(state));
   const pl = game.player;
   return [
     `# Guerra Mundial — vez de ${pl.name} (rodada ${game.s.round})`,
     '',
     `Você é a IA que joga como o jogador **${pl.name}** em uma partida do jogo de estratégia "Guerra Mundial" ` +
-      `(estilo "conquiste o mundo"). Seu objetivo é vencer a partida. Leia as regras, o estado atual e decida ` +
-      `a ação da vez.`,
+      `(estilo "conquiste o mundo"), modo ${modeText(game)}${ctx.online ? ', jogada online' : ''}. ` +
+      `Seu objetivo é ${game.s.teamMode ? 'fazer a sua equipe vencer' : 'vencer'} a partida. Leia as regras, o estado atual e decida a ação da vez.`,
     '',
-    rulesText(),
+    rulesText(game),
     '',
     game.s.teamMode ? teamRulesText(game) + '\n' : null,
+    ctx.online ? onlineRulesText(game, ctx) + '\n' : null,
     `## Situação atual`,
     `Rodada ${game.s.round}. Etapa atual: ${STAGE_NAMES[game.stage] || game.stage}. Jogador da vez: ${pl.name}.`,
     '',

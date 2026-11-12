@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ONLINE_MODES, type OnlineModeKey } from "@/lib/game/engine";
+import { ONLINE_MODES, onlinePlayersText, type OnlineModeKey } from "@/lib/game/engine";
 import { api } from "@/lib/online/client";
 import { Box, Screen } from "@/components/ui/Screen";
 import { useToast } from "@/components/ui/Toasts";
@@ -116,10 +116,14 @@ export function OnlineHome() {
               className={`flex cursor-pointer flex-col items-center rounded-[10px] border-2 px-2 py-2 font-bold ${k === mode ? "border-accent bg-accent text-[#1b1300]" : "border-line bg-panel-2 hover:border-accent"}`}
             >
               {ONLINE_MODES[k].label}
-              <small className="text-[11px] font-semibold opacity-75">{ONLINE_MODES[k].players} jogadores</small>
+              <small className="text-[11px] font-semibold opacity-75">{onlinePlayersText(k)}</small>
             </button>
           ))}
         </div>
+        <p className="mt-2 text-[13px] text-muted">
+          {ONLINE_MODES[mode].label}: {ONLINE_MODES[mode].description}.
+          {ONLINE_MODES[mode].minPlayers !== ONLINE_MODES[mode].players && " Quem criou a sala inicia quando quiser, a partir de 2 jogadores."}
+        </p>
         <label className="mt-3 flex cursor-pointer items-start justify-center gap-2 text-left text-[13px] text-muted">
           <input type="checkbox" className="mt-0.5 accent-accent" checked={reconnectTimer} onChange={(e) => setReconnectTimer(e.target.checked)} />
           <span>
@@ -155,7 +159,7 @@ export function OnlineHome() {
                   <span className="font-mono font-bold">{r.code}</span>
                   <span className="text-muted">{r.mode}</span>
                   <span className="ml-auto text-xs text-muted">
-                    {r.status === "PLAYING" ? "em andamento" : `aguardando ${r.players}/${r.capacity}`}
+                    {r.status === "PLAYING" ? "em andamento" : `no lobby: ${r.players}/${r.capacity}`}
                   </span>
                 </Link>
               ))}

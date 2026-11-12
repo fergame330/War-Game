@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CONTINENTS, CONTINENT_IDS, TERRITORIES, TERRITORY_IDS, cName, tName, territoriesOfContinent, type TerritoryId } from "@/lib/game/data";
 import { Game, STAGE_NAMES, type Action, type ActionResult, type BattleResult, type GameState } from "@/lib/game/engine";
-import { aiPromptFileName, buildAiPrompt, canBuildAiPrompt } from "@/lib/game/aiPrompt";
+import { aiPromptFileName, buildAiPrompt, canBuildAiPrompt, type AiPromptContext } from "@/lib/game/aiPrompt";
 import { dissolveDeadline, type RoomPlayerView } from "@/lib/online/types";
 import { NumberPicker, Modal, ModalActions, ModalText, ModalTitle } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toasts";
@@ -325,6 +325,7 @@ export function GameView({ state, me, act, online, onExit, exitLabel = "Sair", s
   const aiRow = canAct && canBuildAiPrompt(s) ? (
     <AiRow
       state={s}
+      ctx={online ? { online: true, reconnectTimer: online.reconnectTimer } : {}}
       teamButton={s.teamMode ? () => setModal({ kind: "team" }) : undefined}
       onDone={(msg) => toast(msg, player?.color)}
     />
@@ -915,9 +916,9 @@ function MovePanel({ g, busy, onEnd }: { g: Game; busy: boolean; onEnd: () => vo
   );
 }
 
-function AiRow({ state, teamButton, onDone }: { state: GameState; teamButton?: () => void; onDone: (msg: string) => void }) {
+function AiRow({ state, ctx, teamButton, onDone }: { state: GameState; ctx: AiPromptContext; teamButton?: () => void; onDone: (msg: string) => void }) {
   const download = () => {
-    const text = buildAiPrompt(state);
+    const text = buildAiPrompt(state, ctx);
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -930,7 +931,7 @@ function AiRow({ state, teamButton, onDone }: { state: GameState; teamButton?: (
     onDone("Prompt baixado. Envie para a IA e aplique a ação que ela responder.");
   };
   const copy = async () => {
-    const text = buildAiPrompt(state);
+    const text = buildAiPrompt(state, ctx);
     try {
       await navigator.clipboard.writeText(text);
       onDone("Prompt copiado.");

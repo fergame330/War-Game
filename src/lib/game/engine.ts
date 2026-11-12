@@ -1200,16 +1200,25 @@ export function redactState(state: GameState, viewer: number | null): GameState 
   return out;
 }
 
-/** Modos do jogo online. */
+/**
+ * Modos do jogo online. `players` é o máximo de vagas e `minPlayers` o mínimo para iniciar:
+ * no 1x1 (todos contra todos) a partida começa com 2 a 9 jogadores; nas equipes, só com a sala cheia.
+ */
 export const ONLINE_MODES = {
-  '1x1': { label: '1x1', mode: 'solo', players: 2, description: '1 contra 1' },
-  '2x2': { label: '2x2', mode: 'duplas', players: 4, description: '2 duplas' },
-  '2x2x2': { label: '2x2x2', mode: 'duplas', players: 6, description: '3 duplas' },
-  '2x2x2x2': { label: '2x2x2x2', mode: 'duplas', players: 8, description: '4 duplas' },
-  '3x3': { label: '3x3', mode: 'trios', players: 6, description: '2 trios' },
-  '3x3x3': { label: '3x3x3', mode: 'trios', players: 9, description: '3 trios' },
-  '4x4': { label: '4x4', mode: 'quartetos', players: 8, description: '2 quartetos' },
-} as const satisfies Record<string, { label: string; mode: ModeKey; players: number; description: string }>;
+  '1x1': { label: '1x1', mode: 'solo', minPlayers: 2, players: 9, description: 'todos contra todos, 2 a 9 jogadores' },
+  '2x2': { label: '2x2', mode: 'duplas', minPlayers: 4, players: 4, description: '2 duplas' },
+  '2x2x2': { label: '2x2x2', mode: 'duplas', minPlayers: 6, players: 6, description: '3 duplas' },
+  '2x2x2x2': { label: '2x2x2x2', mode: 'duplas', minPlayers: 8, players: 8, description: '4 duplas' },
+  '3x3': { label: '3x3', mode: 'trios', minPlayers: 6, players: 6, description: '2 trios' },
+  '3x3x3': { label: '3x3x3', mode: 'trios', minPlayers: 9, players: 9, description: '3 trios' },
+  '4x4': { label: '4x4', mode: 'quartetos', minPlayers: 8, players: 8, description: '2 quartetos' },
+} as const satisfies Record<string, { label: string; mode: ModeKey; minPlayers: number; players: number; description: string }>;
+
+/** Texto curto com a quantidade de jogadores do modo online ("2 a 9 jogadores", "4 jogadores"). */
+export function onlinePlayersText(key: OnlineModeKey): string {
+  const m = ONLINE_MODES[key];
+  return m.minPlayers === m.players ? `${m.players} jogadores` : `${m.minPlayers} a ${m.players} jogadores`;
+}
 
 export type OnlineModeKey = keyof typeof ONLINE_MODES;
 export const isOnlineMode = (m: string): m is OnlineModeKey => m in ONLINE_MODES;
