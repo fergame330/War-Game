@@ -64,8 +64,11 @@ model RoomPlayer {
   id         String   @id @default(cuid())
   roomId     String
   room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Usuário humano; vazio para bots
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Nome do bot (jogador controlado pelo servidor); vazio para humanos
+  botName    String?
   /// Índice do jogador na partida (definido ao iniciar)
   seat       Int?
   /// Equipe escolhida no lobby (0 = A, 1 = B...), usada quando a sala não sorteia as equipes

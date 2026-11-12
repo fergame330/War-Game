@@ -4,9 +4,10 @@ Jogo de estratégia por turnos no estilo "conquiste o mundo", feito com **Next.j
 TypeScript (TSX) + Tailwind CSS 4 + ESLint**, banco **PostgreSQL** com **Prisma ORM 7** e pronto para a **Vercel**.
 
 - **No mesmo aparelho**: todos jogam no mesmo navegador, passando a vez (individual de 2 a 9, duplas, trios e
-  quartetos).
+  quartetos). Antes de começar, escolha quantos jogadores são **bots**.
 - **Online**: contas com usuário e senha, salas com código, partidas em tempo real nos modos **1x1** (todos contra
-  todos, de 2 a 9 jogadores), **2x2, 2x2x2, 2x2x2x2, 3x3, 3x3x3 e 4x4**.
+  todos, de 2 a 9 jogadores), **2x2, 2x2x2, 2x2x2x2, 3x3, 3x3x3 e 4x4**. Quem cria a sala pode completar as vagas
+  com **bots**.
 
 ## Rodar localmente
 
@@ -54,6 +55,11 @@ npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Na
   aleatórias** (sorteadas ao iniciar) e **escolher** quem fica em cada equipe (com um botão para sortear na hora);
   todos veem as equipes mudarem em tempo real. Mesmo com equipes escolhidas, a equipe que começa e a ordem dentro
   de cada equipe são sorteadas. Cores e territórios são sempre sorteados.
+- **Bots no online**: no lobby, quem criou a sala usa **Adicionar bot**, **Completar com bots** ou **+ Bot** na vaga
+  de uma equipe, e pode tirar cada bot. Os bots são jogados pelo servidor: na vez de um bot, as conexões em tempo
+  real dos jogadores fazem o bot jogar uma ação por vez, com uma pequena pausa para todos acompanharem (a
+  concorrência otimista garante que só uma conexão aplica cada jogada). Bots nunca se desconectam e não votam na
+  desistência: numa equipe com humanos, contam só os votos dos humanos.
 - **Servidor autoritativo**: o estado da partida fica no PostgreSQL (`Room.state`, JSON). Cada jogada é enviada
   para `POST /api/rooms/[código]/action`, validada pelo mesmo motor do jogo e gravada com **concorrência
   otimista** (campo `version`). As cartas dos outros jogadores nunca são enviadas ao navegador, só a quantidade.
@@ -111,6 +117,22 @@ ninguém da mesma equipe joga em seguida.
 - Continente só é dominado por um único jogador.
 - Eliminação: metade das cartas (para cima) para quem eliminou, o resto sorteado entre os aliados do eliminado.
 
+### Bots
+
+Os bots (`src/lib/game/bot.ts`) jogam uma ação de cada vez, para dar para acompanhar na tela:
+
+- Calculam a **chance exata de conquista** (dados de ataque × defesa, empate da defesa).
+- Dão valor a cada alvo: avançar e **dominar continentes**, quebrar o continente de um inimigo, **eliminar
+  jogadores** para ficar com as cartas deles e **conseguir a carta da rodada**.
+- **Colocação**: cada exército vai onde mais aumenta a chance de conquistar um alvo valioso ou de segurar uma
+  fronteira ameaçada, principalmente as dos continentes dominados.
+- **Ataque**: só quando a chance compensa. Se ainda não conquistaram nada na rodada, aceitam mais risco para
+  garantir a carta.
+- **Passagem**: levam os exércitos do interior para as fronteiras e reforçam as mais ameaçadas.
+- **Trocas**: trocam sempre que podem, preferindo cartas de territórios próprios (+3).
+
+No jogo local, os bots esperam enquanto uma janela está aberta e aceleram quando não sobra nenhum humano vivo.
+
 ### Prompt para IA
 
 Na sua vez, **🤖 Baixar prompt p/ IA** (ou **Copiar**) gera um texto com as regras, o estado do mundo, seus dados
@@ -123,10 +145,10 @@ explica o tempo de reconexão e a desistência.
 ```
 prisma/schema.prisma          modelos: User, Session, Room, RoomPlayer
 prisma.config.ts              configuração do Prisma 7 (URL do banco: src/lib/database-url.ts)
-src/lib/game/                 motor do jogo (sem React): data.ts, engine.ts, aiPrompt.ts, mapdata.json
+src/lib/game/                 motor do jogo (sem React): data.ts, engine.ts, bot.ts, aiPrompt.ts, mapdata.json
 src/lib/server/               servidor: db.ts (Prisma + adapter-pg), auth.ts, rooms.ts
 src/lib/online/               tipos e cliente da API
-src/app/api/                  rotas: auth/*, rooms/*, rooms/[code]/{join,leave,teams,start,action,events}
+src/app/api/                  rotas: auth/*, rooms/*, rooms/[code]/{join,leave,teams,bots,start,action,events}
 src/app/                      páginas: / (início), /local, /online, /sala/[code]
 src/components/game/          mapa (SVG com zoom), painéis, modais, GameView
 src/components/online/        login, salas, lobby

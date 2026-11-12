@@ -53,7 +53,8 @@ function onlineRulesText(game: Game, ctx: AiPromptContext): string {
   lines.push(
     '- Desistência: quando metade + 1 dos jogadores vivos de ' + (game.s.teamMode ? 'uma equipe' : 'um lado (no individual, o próprio jogador)') +
       ' votam, ' + (game.s.teamMode ? 'a equipe desiste e seus territórios e cartas vão para a equipe inimiga com menos territórios.' : 'o jogador desiste e seus territórios e cartas vão para o adversário com menos territórios.'),
-    '- A desistência é decidida pelos jogadores humanos: você não vota nela, responda só a ação da vez.'
+    '- A desistência é decidida pelos jogadores humanos: você não vota nela, responda só a ação da vez.',
+    '- Bots (jogadores do computador) não votam: numa equipe com humanos, contam só os votos dos humanos.'
   );
   return lines.join('\n');
 }
@@ -116,12 +117,12 @@ function worldText(game: Game) {
   lines.push('### Jogadores (na ordem padrão)');
   game.s.players.forEach((pl, i) => {
     if (!pl.alive) {
-      lines.push(`${i + 1}. ${pl.name}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''} — ${STATUS_TEXT[pl.status] || 'ELIMINADO'}`);
+      lines.push(`${i + 1}. ${pl.name}${pl.bot ? ' (bot)' : ''}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''} — ${STATUS_TEXT[pl.status] || 'ELIMINADO'}`);
       return;
     }
     const conts = game.continentsOf(i).map(cn);
     lines.push(
-      `${i + 1}. ${pl.name}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''}${i === game.s.current ? ' (VOCÊ)' : ''} — ` +
+      `${i + 1}. ${pl.name}${pl.bot ? ' (bot)' : ''}${game.s.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''}${i === game.s.current ? ' (VOCÊ)' : ''} — ` +
         `${game.territoryCount(i)} territórios` + (game.territoriesOf(i).length !== game.territoryCount(i) ? ` (controla ${game.territoriesOf(i).length})` : '') + ', ' +
         `${game.totalArmies(i)} exércitos nos territórios que controla, ${game.cardCount(i)} carta(s)` +
         (conts.length ? `, domina: ${conts.join(', ')}` : '')

@@ -9,11 +9,12 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/rooms/[cod
     const room = await loadRoom(code);
     if (room.status === "PLAYING") throw new HttpError(409, "Durante a partida, use a desistência.");
     await db().roomPlayer.deleteMany({ where: { roomId: room.id, userId: user.id } });
-    const rest = room.players.filter((p) => p.userId !== user.id);
-    if (!rest.length) {
+    // sem humanos na sala, ela acaba (os bots saem junto)
+    const humans = room.players.filter((p) => p.userId && p.userId !== user.id);
+    if (!humans.length) {
       await db().room.delete({ where: { id: room.id } });
     } else {
-      if (room.hostId === user.id) await db().room.update({ where: { id: room.id }, data: { hostId: rest[0].userId } });
+      if (room.hostId === user.id) await db().room.update({ where: { id: room.id }, data: { hostId: humans[0].userId! } });
       await bumpVersion(room.id);
     }
     return Response.json({ ok: true });

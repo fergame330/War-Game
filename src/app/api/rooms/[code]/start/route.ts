@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { Game, ONLINE_MODES, type OnlineModeKey } from "@/lib/game/engine";
 import { db } from "@/lib/server/db";
-import { buildPayload, errorResponse, HttpError, loadRoom, requireUser, teamInfo } from "@/lib/server/rooms";
+import { buildPayload, errorResponse, HttpError, loadRoom, playerName, requireUser, seatKey, teamInfo } from "@/lib/server/rooms";
 import { TEAM_LETTERS } from "@/lib/game/engine";
 
 /** O dono da sala inicia a partida quando todas as vagas estão preenchidas. */
@@ -37,16 +37,17 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/rooms/[cod
     // cores, ordem, equipes (se aleatórias) e territórios são sorteados pelo motor
     const game = Game.create(count, {
       mode: mode.mode,
-      names: room.players.map((p) => p.user.username),
-      userIds: room.players.map((p) => p.userId),
+      names: room.players.map(playerName),
+      userIds: room.players.map((p) => p.userId ?? undefined),
+      bots: room.players.map((p) => !p.userId),
       teams: fixedTeams ? room.players.map((p) => p.team!) : undefined,
     });
     const state = game.toState();
-    const seatOf = new Map(state.players.map((p) => [p.userId!, p.index]));
+    const seatOf = new Map(state.players.map((p) => [seatKey(p), p.index]));
     const now = new Date();
     await db().$transaction([
       ...room.players.map((p) =>
-        db().roomPlayer.update({ where: { id: p.id }, data: { seat: seatOf.get(p.userId)!, lastSeenAt: now } })
+        db().roomPlayer.update({ where: { id: p.id }, data: { seat: seatOf.get(seatKey(p))!, lastSeenAt: now } })
       ),
       db().room.updateMany({
         where: { id: room.id, version: room.version, status: "LOBBY" },
