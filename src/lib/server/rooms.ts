@@ -61,6 +61,7 @@ export function buildPayload(room: RoomWithPlayers, userId: string, now = Date.n
     reconnectTimer: room.reconnectTimer,
     version: room.version,
     capacity: ONLINE_MODES[room.mode as OnlineModeKey]?.players ?? 0,
+    minPlayers: ONLINE_MODES[room.mode as OnlineModeKey]?.minPlayers ?? 0,
     players: room.players.map((p) => ({
       userId: p.userId,
       username: p.user.username,

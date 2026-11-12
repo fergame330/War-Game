@@ -24,7 +24,9 @@ export interface RoomPayload {
   status: RoomStatus;
   reconnectTimer: boolean;
   version: number;
+  /** Vagas (máximo) e mínimo de jogadores para iniciar. */
   capacity: number;
+  minPlayers: number;
   players: RoomPlayerView[];
   state: GameState | null;
   /** Assento do usuário que recebe (null = espectador / ainda no lobby). */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CONTINENTS, tName, type TerritoryId } from "@/lib/game/data";
+import { CONTINENTS, CONTINENT_IDS, tName, territoriesOfContinent, type TerritoryId } from "@/lib/game/data";
 import { Game, isValidSet, SHAPE_NAMES, type Action, type ActionResult } from "@/lib/game/engine";
 import { Modal, ModalActions, ModalText, ModalTitle } from "@/components/ui/Modal";
 import { CardsGrid, CardView } from "./CardView";
@@ -376,17 +376,31 @@ export function RulesModal({ onClose }: { onClose: () => void }) {
       </L>
       <H>Online</H>
       <L>
+        <li>Modos 1x1 (todos contra todos, de 2 a 9 jogadores), 2x2, 2x2x2, 2x2x2x2, 3x3, 3x3x3 e 4x4.</li>
         <li>Com o tempo de reconexão ligado, quem cair tem 3 minutos (todos veem o contador) para voltar; se não voltar, há dissolução: territórios para os aliados e cartas sorteadas, metade para aliados e metade para inimigos.</li>
         <li>Desistência: quando metade + 1 da equipe vota, a equipe desiste e seus territórios e cartas vão para a equipe inimiga com menos territórios.</li>
       </L>
-      <H>Bônus dos continentes</H>
-      <L>
-        {Object.values(CONTINENTS).map((c) => (
-          <li key={c.name}>
-            <b>{c.name}</b>: {c.bonus}
-          </li>
-        ))}
-      </L>
+      <H>Continentes e territórios</H>
+      <p className="mb-2 text-[13px] text-muted">
+        Quem domina todos os territórios de um continente recebe o bônus dele no início de cada rodada. A Arctogea junta o Ártico e a
+        Antártida, em polos opostos do mapa.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {CONTINENT_IDS.map((c) => {
+          const terrs = territoriesOfContinent(c);
+          return (
+            <div key={c} className="rounded-lg border-l-4 bg-panel-2 px-3 py-2" style={{ borderLeftColor: CONTINENTS[c].color }}>
+              <div className="flex items-baseline justify-between gap-2">
+                <b>{CONTINENTS[c].name}</b>
+                <span className="text-xs text-muted">
+                  {terrs.length} territórios · <b className="text-accent">+{CONTINENTS[c].bonus}</b>
+                </span>
+              </div>
+              <div className="mt-1 text-[13px] leading-snug text-muted">{terrs.map(tName).join(", ")}</div>
+            </div>
+          );
+        })}
+      </div>
       <H>Controles</H>
       <L>
         <li>Roda do mouse, pinça ou botões +/− para zoom; arraste para mover o mapa.</li>

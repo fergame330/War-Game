@@ -12,11 +12,17 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/rooms/[cod
     if (room.hostId !== user.id) throw new HttpError(403, "Só quem criou a sala pode iniciar.");
     if (room.status !== "LOBBY") throw new HttpError(409, "A partida já começou.");
     const mode = ONLINE_MODES[room.mode as OnlineModeKey];
-    if (room.players.length !== mode.players) {
-      throw new HttpError(409, `São necessários ${mode.players} jogadores (há ${room.players.length}).`);
+    const count = room.players.length;
+    if (count < mode.minPlayers || count > mode.players) {
+      throw new HttpError(
+        409,
+        mode.minPlayers === mode.players
+          ? `São necessários ${mode.players} jogadores (há ${count}).`
+          : `São necessários de ${mode.minPlayers} a ${mode.players} jogadores (há ${count}).`
+      );
     }
     // cores, ordem, equipes e territórios são sorteados pelo motor
-    const game = Game.create(mode.players, {
+    const game = Game.create(count, {
       mode: mode.mode,
       names: room.players.map((p) => p.user.username),
       userIds: room.players.map((p) => p.userId),
