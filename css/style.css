@@ -408,14 +408,98 @@ button { font: inherit; }
 .winner-box { text-align: center; }
 .winner-box .trophy { font-size: 64px; }
 
-/* ---------- telas estreitas ---------- */
-@media (max-width: 900px) {
-  body { overflow: auto; }
-  #game-screen { height: auto; min-height: 100%; }
-  #game-main { flex-direction: column; }
-  #map-wrap { height: max(260px, 60vw); flex: none; }
-  #sidebar { width: 100%; border-left: 0; border-top: 1px solid var(--line); }
+/* ---------- abas do painel (só aparecem em telas pequenas) ---------- */
+#sheet-tabs { display: none; }
+#map.far .tname { display: none; }
+body { touch-action: manipulation; }
+
+/* ---------- celular e telas pequenas ---------- */
+@media (max-width: 900px), (max-height: 520px) {
+  html, body { height: 100%; height: 100dvh; }
+  body { font-size: 13px; }
   .brand { display: none; }
   .start-box { padding: 28px 20px; }
   .start-box h1 { font-size: 36px; }
+  .subtitle { margin-bottom: 24px; }
+
+  #topbar { gap: 8px; padding: 6px 10px; padding-top: max(6px, env(safe-area-inset-top)); flex-wrap: nowrap; }
+  #round-info { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  #topbar .spacer { display: none; }
+  #current-chip { flex: none; }
+  #current-chip .chip { padding: 2px 8px 2px 3px; font-size: 12px; }
+  #topbar .btn-small { padding: 5px 8px; font-size: 12px; flex: none; }
+
+  #sidebar { padding: 8px; gap: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  #sheet-tabs { display: flex; gap: 4px; flex: none; position: sticky; top: -8px; z-index: 2; background: var(--panel); margin: -8px -8px 0; padding: 8px 8px 0; }
+  #sheet-tabs button {
+    flex: 1;
+    padding: 7px 4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+  }
+  #sheet-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  #sidebar[data-tab="turn"] .panel:not([data-tab="turn"]),
+  #sidebar[data-tab="players"] .panel:not([data-tab="players"]),
+  #sidebar[data-tab="continents"] .panel:not([data-tab="continents"]),
+  #sidebar[data-tab="log"] .panel:not([data-tab="log"]) { display: none; }
+  .panel h3 { display: none; }
+  .panel { padding: 8px 10px; }
+  #log-panel { max-height: none; }
+
+  .instructions.hint { display: none; }
+  #turn-panel > .actions:last-child {
+    position: sticky;
+    bottom: calc(-8px - env(safe-area-inset-bottom));
+    background: var(--panel-2);
+    margin: 8px -10px -8px;
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+  }
+  .turn-head { font-size: 15px; }
+  .instructions { margin: 6px 0; font-size: 12.5px; }
+  .big-number { font-size: 24px; }
+  .actions .btn { padding: 10px 12px; }
+  .step-row { flex-wrap: wrap; }
+  .step-row .btn-small { padding: 6px 10px; }
+  .die { width: 28px; height: 28px; font-size: 16px; }
+
+  #zoom-controls { left: 8px; bottom: 8px; }
+  #zoom-controls button { width: 40px; height: 40px; }
+
+  #toast-root { top: 52px; }
+  .toast { font-size: 13px; padding: 8px 12px; }
+
+  .modal { padding: 16px; }
+  .modal h2 { font-size: 18px; }
+  .cards-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .card { min-height: 128px; padding: 6px; }
+  .card .shape svg { width: 44px; height: 44px; }
+}
+
+/* celular em pé: mapa em cima, painel embaixo */
+@media (max-width: 900px) and (orientation: portrait) {
+  #game-main { flex-direction: column; }
+  #map-wrap { flex: 1 1 auto; min-height: 220px; }
+  #sidebar {
+    width: 100%;
+    flex: none;
+    max-height: 44%;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, .35);
+  }
+}
+
+/* celular deitado: painel estreito ao lado */
+@media (max-height: 520px) and (orientation: landscape) {
+  #sidebar { width: 270px; }
+  .start-box { padding: 18px 20px; }
+  .start-box h1 { font-size: 30px; }
+  .count-grid { grid-template-columns: repeat(8, 52px); }
+  .count-grid button { height: 52px; font-size: 20px; }
 }

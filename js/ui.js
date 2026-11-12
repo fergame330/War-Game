@@ -197,6 +197,7 @@
 
   function onGameEvent(type, payload) {
     if (type === 'turn') {
+      setTab('turn');
       ui.source = ui.target = ui.moveSource = null;
       ui.lastBattle = null;
       if (!ui.starting) announceTurn();
@@ -305,14 +306,20 @@
           if (pan.suppressClick) return;
           e.stopPropagation();
           onTerritoryClick(id);
+          // no toque não existe "passar o mouse": mostra a dica por alguns segundos
+          if (pan.lastPointerType !== 'mouse' && !modalOpen) {
+            showTooltip(id, e);
+            clearTimeout(tooltipTimer);
+            tooltipTimer = setTimeout(hideTooltip, 2500);
+          }
         });
         el.addEventListener('contextmenu', (e) => {
           e.preventDefault();
           onTerritoryRightClick(id);
         });
-        el.addEventListener('mouseenter', (e) => showTooltip(id, e));
-        el.addEventListener('mousemove', (e) => moveTooltip(e));
-        el.addEventListener('mouseleave', hideTooltip);
+        el.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') showTooltip(id, e); });
+        el.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') moveTooltip(e); });
+        el.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hideTooltip(); });
       }
     }
     svg.addEventListener('click', () => {
@@ -324,14 +331,36 @@
   }
 
   // ---------- zoom e arrasto ----------
+  // A viewBox sempre tem a mesma proporção da área do mapa na tela.
   const view = { x: 0, y: 0, w: 0, h: 0 };
-  const pan = { pointers: new Map(), moved: false, suppressClick: false, startDist: 0, startView: null };
+  const pan = { pointers: new Map(), moved: false, suppressClick: false, startDist: 0, startView: null, lastPointerType: 'mouse' };
+  const MIN_W = M.width / 14;
+  let tooltipTimer = null;
 
-  // Os marcadores encolhem (em unidades do mapa) quando se aproxima, para não cobrir o mapa
+  function mapRect() { return els.svg.getBoundingClientRect(); }
+  function containerAspect() {
+    const r = mapRect();
+    return r.width > 0 && r.height > 0 ? r.height / r.width : M.height / M.width;
+  }
+  // largura da viewBox que mostra o mapa inteiro
+  function fitWidth() { return Math.max(M.width, M.height / containerAspect()); }
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  function clampView() {
+    view.w = clamp(view.w, MIN_W, fitWidth());
+    view.h = view.w * containerAspect();
+    view.x = view.w >= M.width ? (M.width - view.w) / 2 : clamp(view.x, 0, M.width - view.w);
+    view.y = view.h >= M.height ? (M.height - view.h) / 2 : clamp(view.y, 0, M.height - view.h);
+  }
+
+  // Os marcadores têm tamanho mínimo na tela (legíveis no celular) e crescem pouco ao aproximar.
   let lastBadgeScale = 0;
   function applyView() {
     els.svg.setAttribute('viewBox', [view.x, view.y, view.w, view.h].map((v) => v.toFixed(2)).join(' '));
-    const k = Math.round((1 / Math.sqrt(M.width / view.w)) * 100) / 100;
+    const px = (mapRect().width || M.width) / view.w; // pixels por unidade do mapa
+    const radiusPx = clamp(13 * Math.sqrt(px * 0.63), 7.5, 20);
+    const k = Math.round((radiusPx / (13 * px)) * 100) / 100;
+    els.svg.classList.toggle('far', px < 0.45);
     if (k === lastBadgeScale) return;
     lastBadgeScale = k;
     for (const id of D.territoryIds) {
@@ -340,15 +369,19 @@
     }
   }
 
-  function clampView() {
-    view.w = Math.max(M.width / 12, Math.min(M.width, view.w));
-    view.h = (view.w * M.height) / M.width;
-    view.x = Math.max(0, Math.min(M.width - view.w, view.x));
-    view.y = Math.max(0, Math.min(M.height - view.h, view.y));
+  function resetView() {
+    view.w = fitWidth();
+    clampView();
+    applyView();
   }
 
-  function resetView() {
-    Object.assign(view, { x: 0, y: 0, w: M.width, h: M.height });
+  function refitView() {
+    if (!view.w) return resetView();
+    const cx = view.x + view.w / 2, cy = view.y + view.h / 2;
+    clampView();
+    view.x = cx - view.w / 2;
+    view.y = cy - view.h / 2;
+    clampView();
     applyView();
   }
 
@@ -361,7 +394,7 @@
 
   function zoomAt(clientX, clientY, factor) {
     const p = toSvgPoint(clientX, clientY);
-    const newW = Math.max(M.width / 12, Math.min(M.width, view.w / factor));
+    const newW = clamp(view.w / factor, MIN_W, fitWidth());
     const k = newW / view.w;
     view.x = p.x - (p.x - view.x) * k;
     view.y = p.y - (p.y - view.y) * k;
@@ -371,7 +404,7 @@
   }
 
   function zoomCenter(factor) {
-    const r = els.svg.getBoundingClientRect();
+    const r = mapRect();
     zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
   }
 
@@ -383,6 +416,7 @@
     }, { passive: false });
 
     svg.addEventListener('pointerdown', (e) => {
+      pan.lastPointerType = e.pointerType;
       if (e.button !== 0 && e.pointerType === 'mouse') return;
       pan.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       pan.moved = false;
@@ -447,6 +481,8 @@
     $('#zoom-in').addEventListener('click', () => zoomCenter(1.4));
     $('#zoom-out').addEventListener('click', () => zoomCenter(1 / 1.4));
     $('#zoom-reset').addEventListener('click', resetView);
+    if (window.ResizeObserver) new ResizeObserver(() => refitView()).observe($('#map-wrap'));
+    else window.addEventListener('resize', refitView);
   }
 
   // ---------- dica ao passar o mouse ----------
@@ -501,6 +537,7 @@
 
   function onTerritoryClick(id) {
     if (!game || modalOpen || game.stage === 'over') return;
+    setTab('turn');
     if (game.isPlacing()) return placeClick(id);
     if (game.stage === 'attack') return attackClick(id);
     if (game.stage === 'move') return moveClick(id);
@@ -517,6 +554,10 @@
   }
 
   function placeClick(id) {
+    if (ui.step === 'remove') {
+      if (!game.unplace(id, 1)) toast('Só dá para remover exércitos colocados agora.', game.player.color);
+      return;
+    }
     if (!game.canPlaceOn(id)) {
       if (game.owner[id] !== game.current) toast('Esse território não é seu.', game.player.color);
       else toast('Esses exércitos só podem ir para o continente ' + D.continents[game.pool.continent].name + '.', game.player.color);
@@ -821,6 +862,14 @@
       h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: closeModal }, 'Fechar'))), { wide: true });
   }
 
+  // Abas do painel (usadas no celular, onde o painel fica embaixo do mapa)
+  function setTab(name) {
+    $('#sidebar').dataset.tab = name;
+    document.querySelectorAll('#sheet-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+  }
+  document.querySelectorAll('#sheet-tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+  setTab('turn');
+
   $('#btn-help').addEventListener('click', showRules);
   $('#btn-cards').addEventListener('click', showCardsModal);
   $('#btn-names').addEventListener('click', (e) => {
@@ -940,18 +989,19 @@
     const where = pool.continent
       ? h('span', null, 'somente no continente ', h('b', null, D.continents[pool.continent].name))
       : h('span', null, 'em qualquer território seu');
-    const steps = [1, 5, 10, 'all'].map((st) =>
+    const steps = [1, 5, 10, 'all', 'remove'].map((st) =>
       h('button', {
         class: 'btn btn-small btn-ghost' + (ui.step === st ? ' active' : ''),
+        title: st === 'remove' ? 'Clique em um território para tirar 1 exército colocado agora' : null,
         onclick: () => { ui.step = st; render(); },
-      }, st === 'all' ? 'Todos' : '+' + st));
+      }, st === 'all' ? 'Todos' : st === 'remove' ? '−1' : '+' + st));
     return [
       h('p', { class: 'instructions' },
         'Coloque ', h('b', null, pool.amount), pool.amount === 1 ? ' exército (' : ' exércitos (', pool.label, ') ', where, '.',
         game.pools.length > 1 ? ' Etapa ' + (game.poolIndex + 1) + ' de ' + game.pools.length + '.' : ''),
       h('div', null, h('span', { class: 'big-number' }, remaining), ' ', h('span', { class: 'tt-muted' }, remaining === 1 ? 'restante' : 'restantes')),
       h('div', { class: 'step-row' }, h('span', null, 'Por clique:'), steps),
-      h('p', { class: 'instructions' }, 'Clique em um território destacado para adicionar; botão direito remove.'),
+      h('p', { class: 'instructions hint' }, 'Toque/clique em um território destacado para adicionar. Para tirar, use −1 (ou o botão direito do mouse).'),
       h('div', { class: 'actions' },
         h('button', { class: 'btn btn-ghost', onclick: () => game.resetPool(), disabled: !Object.keys(game.poolPlaced).length }, 'Desfazer'),
         h('button', { class: 'btn btn-ok', onclick: () => game.confirmPool(), disabled: remaining !== 0 }, 'Confirmar')),
@@ -961,7 +1011,7 @@
   function attackPanel() {
     const out = [];
     const pendings = Object.entries(game.pending);
-    out.push(h('p', { class: 'instructions' },
+    out.push(h('p', { class: 'instructions hint' },
       'Selecione um território seu com mais de 1 exército e depois um inimigo vizinho. ' +
       'Clicar direto em um inimigo escolhe seu vizinho mais forte.'));
     if (pendings.length) {
@@ -1038,7 +1088,7 @@
     const owned = game.continentsOf(game.current)
       .filter((c) => D.territoryIds.filter((id) => D.territories[id].continent === c).length > 1);
     return [
-      h('p', { class: 'instructions' },
+      h('p', { class: 'instructions hint' },
         'Clique no território de origem e depois no destino (vizinho). Só os exércitos que já estavam no território ' +
         'no início da passagem podem cruzar uma fronteira, e sempre fica pelo menos 1.'),
       owned.length
