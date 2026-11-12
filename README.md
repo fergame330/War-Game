@@ -14,7 +14,7 @@ Requisitos: Node.js 22+ e um PostgreSQL.
 
 ```bash
 npm install                      # também gera o Prisma Client (postinstall)
-cp .env.example .env             # ajuste DATABASE_URL
+cp .env.example .env             # ajuste a URL do banco
 npx prisma migrate dev           # cria as tabelas
 npm run dev                      # http://localhost:3000
 ```
@@ -32,14 +32,17 @@ npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Na
 ## Publicar na Vercel
 
 1. Importe o repositório na Vercel (framework detectado: Next.js).
-2. Crie o banco: em **Storage → Marketplace**, adicione **Prisma Postgres** (ou Neon) e conecte ao projeto. A
-   integração cria a variável `DATABASE_URL`. Se usar outro PostgreSQL, crie `DATABASE_URL` manualmente em
-   **Settings → Environment Variables**.
-3. Faça o deploy. O script `vercel-build` roda `prisma generate`, aplica as migrações (`prisma migrate deploy`) e
-   faz o `next build`.
+2. Crie o banco: em **Storage → Marketplace**, adicione **Prisma Postgres** (ou Neon) e conecte ao projeto.
+3. Confira as variáveis em **Settings → Environment Variables**. O app aceita qualquer uma destas:
 
-Dica: para muitas partidas simultâneas, use a URL de conexão **com pool** do seu provedor (por exemplo o endpoint
-"pooled" do Prisma Postgres ou do Neon) em `DATABASE_URL`.
+   | Variável | Uso |
+   |---|---|
+   | `DATABASE_URL_POOLED` | conexão **com pool**, usada pelo app (recomendada na Vercel) |
+   | `DATABASE_URL` ou `POSTGRES_URL` | conexão **direta**, usada pelas migrações no build (e pelo app, se não houver a com pool) |
+   | `PRISMA_DATABASE_URL` | usada só se for uma URL `postgres://`; a do Accelerate (`prisma+postgres://`) é ignorada |
+
+4. Faça o deploy (ou **Redeploy**, se mudou variáveis: elas só valem para deploys novos). O script
+   `vercel-build` roda `prisma generate`, aplica as migrações (`prisma migrate deploy`) e faz o `next build`.
 
 ## Como funciona o online
 
@@ -114,7 +117,7 @@ e as ações possíveis, pedindo que a IA responda apenas a ação da vez num fo
 
 ```
 prisma/schema.prisma          modelos: User, Session, Room, RoomPlayer
-prisma.config.ts              configuração do Prisma 7 (lê DATABASE_URL)
+prisma.config.ts              configuração do Prisma 7 (URL do banco: src/lib/database-url.ts)
 src/lib/game/                 motor do jogo (sem React): data.ts, engine.ts, aiPrompt.ts, mapdata.json
 src/lib/server/               servidor: db.ts (Prisma + adapter-pg), auth.ts, rooms.ts
 src/lib/online/               tipos e cliente da API
