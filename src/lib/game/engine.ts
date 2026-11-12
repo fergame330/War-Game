@@ -221,6 +221,8 @@ export interface NewGameOptions {
   /** Nomes dos jogadores na ordem dos assentos (modo online). Sem nomes, usa o nome da cor. */
   names?: string[];
   userIds?: string[];
+  /** Equipe de cada jogador informado (mesma ordem de names/userIds). Sem isto, as equipes são sorteadas. */
+  teams?: number[];
 }
 
 // ------------------------------------------------------------------ motor
@@ -245,11 +247,29 @@ export class Game {
 
     // Nas equipes a ordem alterna as equipes (A B C A B C...): ninguém da mesma equipe joga em seguida.
     const colors = shuffle(COLORS, rng).slice(0, numPlayers);
-    // No online, os assentos (nomes) também são sorteados
-    const seats = shuffle(
-      Array.from({ length: numPlayers }, (_, i) => i),
-      rng
-    );
+    // seats[i] = qual dos jogadores informados (names/userIds) fica no assento i; teamOf[i] = equipe do assento i
+    let seats: number[];
+    let teamOf: number[];
+    if (teamMode && opts.teams) {
+      // Equipes definidas por quem criou a sala: cada equipe mantém a sua letra, mas a equipe que
+      // começa e a ordem dentro de cada equipe continuam sorteadas.
+      const teams = opts.teams;
+      if (teams.length !== numPlayers) throw new Error('Equipes inválidas');
+      const members = Array.from({ length: numTeams }, (_, t) =>
+        shuffle(teams.map((team, k) => (team === t ? k : -1)).filter((k) => k >= 0), rng)
+      );
+      if (members.some((m) => m.length !== mode.teamSize)) throw new Error('Cada equipe precisa ter ' + mode.teamSize + ' jogadores');
+      const teamOrder = shuffle(Array.from({ length: numTeams }, (_, t) => t), rng);
+      teamOf = Array.from({ length: numPlayers }, (_, i) => teamOrder[i % numTeams]);
+      seats = teamOf.map((t, i) => members[t][Math.floor(i / numTeams)]);
+    } else {
+      // No online, os assentos (nomes) também são sorteados
+      seats = shuffle(
+        Array.from({ length: numPlayers }, (_, i) => i),
+        rng
+      );
+      teamOf = Array.from({ length: numPlayers }, (_, i) => i % numTeams);
+    }
     const players: Player[] = colors.map((c, i) => ({
       index: i,
       name: opts.names ? opts.names[seats[i]] : c.name,
@@ -259,7 +279,7 @@ export class Game {
       cards: [],
       alive: true,
       status: 'playing',
-      team: i % numTeams,
+      team: teamOf[i],
     }));
 
     const owner = {} as Record<TerritoryId, number>;

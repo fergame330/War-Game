@@ -3,6 +3,7 @@ import { randomInt } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import {
   Game,
+  MODES,
   ONLINE_MODES,
   redactState,
   type Action,
@@ -62,6 +63,8 @@ export function buildPayload(room: RoomWithPlayers, userId: string, now = Date.n
     version: room.version,
     capacity: ONLINE_MODES[room.mode as OnlineModeKey]?.players ?? 0,
     minPlayers: ONLINE_MODES[room.mode as OnlineModeKey]?.minPlayers ?? 0,
+    ...teamInfo(room.mode),
+    randomTeams: room.randomTeams,
     players: room.players.map((p) => ({
       userId: p.userId,
       username: p.user.username,
@@ -69,12 +72,36 @@ export function buildPayload(room: RoomWithPlayers, userId: string, now = Date.n
       online: now - p.lastSeenAt.getTime() <= OFFLINE_AFTER_MS,
       lastSeenAt: p.lastSeenAt.getTime(),
       isHost: p.userId === room.hostId,
+      team: p.team,
     })),
     state: state ? redactState(state, mySeat) : null,
     mySeat,
     myUserId: userId,
     serverNow: now,
   };
+}
+
+/** Tamanho e quantidade de equipes do modo online (1 e 0 no individual). */
+export function teamInfo(modeKey: string): { teamSize: number; numTeams: number } {
+  const m = ONLINE_MODES[modeKey as OnlineModeKey];
+  if (!m) return { teamSize: 1, numTeams: 0 };
+  const teamSize = MODES[m.mode].teamSize;
+  return teamSize > 1 ? { teamSize, numTeams: m.players / teamSize } : { teamSize: 1, numTeams: 0 };
+}
+
+/** Equipe com vaga e menos jogadores (para quem entra numa sala com equipes definidas). */
+export function balancedTeam(modeKey: string, teams: (number | null)[]): number | null {
+  const { teamSize, numTeams } = teamInfo(modeKey);
+  let best: number | null = null;
+  let bestCount = Infinity;
+  for (let t = 0; t < numTeams; t++) {
+    const count = teams.filter((x) => x === t).length;
+    if (count < teamSize && count < bestCount) {
+      best = t;
+      bestCount = count;
+    }
+  }
+  return best;
 }
 
 /** Marca que o usuário está conectado à sala. */

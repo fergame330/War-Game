@@ -15,6 +15,8 @@ export interface RoomPlayerView {
   /** Momento (ms, relógio do servidor) do último sinal recebido. */
   lastSeenAt: number;
   isHost: boolean;
+  /** Equipe escolhida no lobby (null = sem equipe / sorteio). */
+  team: number | null;
 }
 
 /** O que cada cliente recebe da sala (as cartas dos outros jogadores vêm ocultas). */
@@ -27,6 +29,10 @@ export interface RoomPayload {
   /** Vagas (máximo) e mínimo de jogadores para iniciar. */
   capacity: number;
   minPlayers: number;
+  /** Modos de equipe: tamanho e quantidade de equipes; randomTeams = sorteadas ao iniciar. */
+  teamSize: number;
+  numTeams: number;
+  randomTeams: boolean;
   players: RoomPlayerView[];
   state: GameState | null;
   /** Assento do usuário que recebe (null = espectador / ainda no lobby). */

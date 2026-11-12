@@ -50,7 +50,10 @@ npm run build-map   # regenera o mapa (src/lib/game/mapdata.json) a partir do Na
   guarda só o hash do token.
 - **Salas**: quem cria escolhe o modo e se o **tempo de reconexão** fica ligado; recebe um código de 6 letras.
   Os outros entram pelo código (ou pelo link). No 1x1 o dono inicia quando quiser, com 2 a 9 jogadores; nos modos
-  de equipe, quando a sala está cheia. Cores, ordem, equipes e territórios são sorteados.
+  de equipe, quando a sala está cheia. Nos modos de equipe, quem criou a sala escolhe no lobby entre **equipes
+  aleatórias** (sorteadas ao iniciar) e **escolher** quem fica em cada equipe (com um botão para sortear na hora);
+  todos veem as equipes mudarem em tempo real. Mesmo com equipes escolhidas, a equipe que começa e a ordem dentro
+  de cada equipe são sorteadas. Cores e territórios são sempre sorteados.
 - **Servidor autoritativo**: o estado da partida fica no PostgreSQL (`Room.state`, JSON). Cada jogada é enviada
   para `POST /api/rooms/[código]/action`, validada pelo mesmo motor do jogo e gravada com **concorrência
   otimista** (campo `version`). As cartas dos outros jogadores nunca são enviadas ao navegador, só a quantidade.
@@ -123,7 +126,7 @@ prisma.config.ts              configuração do Prisma 7 (URL do banco: src/lib/
 src/lib/game/                 motor do jogo (sem React): data.ts, engine.ts, aiPrompt.ts, mapdata.json
 src/lib/server/               servidor: db.ts (Prisma + adapter-pg), auth.ts, rooms.ts
 src/lib/online/               tipos e cliente da API
-src/app/api/                  rotas: auth/*, rooms/*, rooms/[code]/{join,leave,start,action,events}
+src/app/api/                  rotas: auth/*, rooms/*, rooms/[code]/{join,leave,teams,start,action,events}
 src/app/                      páginas: / (início), /local, /online, /sala/[code]
 src/components/game/          mapa (SVG com zoom), painéis, modais, GameView
 src/components/online/        login, salas, lobby
