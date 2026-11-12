@@ -32,6 +32,8 @@ function play(numPlayers, seed) {
   let steps = 0;
   while (g.stage !== 'over' && steps++ < 200000) {
     if (g.round > 300) { if (process.env.DEBUG) console.log(g.players.map((p, i) => p.name + ":" + g.territoriesOf(i).length + "/" + g.totalArmies(i) + "/c" + p.cards.length).join(" "), "trocas", g.tradeCount); return { round: g.round, unfinished: true }; }
+    if (g.stage === 'reinforce-continent') assert(g.pool && g.pool.continent, 'bônus de continente fora de ordem');
+    if (g.stage === 'reinforce-territory') assert(g.pool && !g.pool.continent, 'bônus de território fora de ordem');
     if (g.isPlacing()) {
       const opts = g.territoriesOf(g.current).filter((t) => g.canPlaceOn(t));
       assert(opts.length, 'sem território para colocar');

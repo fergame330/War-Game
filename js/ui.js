@@ -37,7 +37,7 @@
       else if (k === 'html') el.innerHTML = v;
       else el.setAttribute(k, v === true ? '' : v);
     }
-    for (const c of children.flat()) {
+    for (const c of children.flat(Infinity)) {
       if (c === null || c === undefined || c === false) continue;
       el.append(c instanceof Node ? c : document.createTextNode(String(c)));
     }
@@ -931,7 +931,7 @@
         h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: showTradeModal }, 'Abrir troca de cartas')),
       ];
     }
-    panel.replaceChildren(...head, ...body);
+    panel.replaceChildren(...head, ...body.filter(Boolean));
   }
 
   function placementPanel() {

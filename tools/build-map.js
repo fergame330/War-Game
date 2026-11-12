@@ -75,7 +75,7 @@ const COUNTRY_TO_TERRITORY = {
   Ukraine: 'ucrania', Moldova: 'ucrania',
   Belarus: 'belarus',
   Lithuania: 'lituania', Latvia: 'lituania', Estonia: 'lituania',
-  Norway: 'noruega', // Svalbard vai para o Ártico
+  Norway: 'noruega', // inclui Svalbard
   Sweden: 'suecia',
   Finland: 'finlandia',
   Russia: 'russia',
@@ -105,7 +105,8 @@ const COUNTRY_TO_TERRITORY = {
 // Recorte de latitude do mapa e faixa do Ártico
 const LAT_MIN = -72;
 const LAT_MAX = 84;
-const ARCTIC_MIN = 76;
+// Espaço acima do mapa onde fica a calota de gelo do Ártico (separada das terras pelo mar)
+const TOP_PAD = 105;
 
 // Projeção de Miller
 const WIDTH = 2000;
@@ -113,8 +114,8 @@ const millerY = (lat) => 1.25 * Math.log(Math.tan(Math.PI / 4 + 0.4 * (lat * Mat
 const Y_TOP = millerY(LAT_MAX);
 const Y_BOTTOM = millerY(LAT_MIN);
 const SCALE = WIDTH / (2 * Math.PI);
-const HEIGHT = Math.round((Y_TOP - Y_BOTTOM) * SCALE);
-const project = ([lon, lat]) => [((lon + 180) / 360) * WIDTH, (Y_TOP - millerY(lat)) * SCALE];
+const HEIGHT = Math.round((Y_TOP - Y_BOTTOM) * SCALE) + TOP_PAD;
+const project = ([lon, lat]) => [((lon + 180) / 360) * WIDTH, (Y_TOP - millerY(lat)) * SCALE + TOP_PAD];
 
 function polygonsOf(geom) {
   if (geom.type === 'Polygon') return [geom.coordinates];
@@ -133,7 +134,6 @@ function territoryForPolygon(countryName, poly) {
   const [lon, lat] = ringCenter(poly[0]);
   if (countryName === 'United States of America' && lat > 51 && lon < -129) return 'alaska';
   if (countryName === 'France' && lon < -40) return 'guianas';
-  if (countryName === 'Norway' && lat > 74) return 'artico';
   return COUNTRY_TO_TERRITORY[countryName];
 }
 
@@ -187,14 +187,60 @@ for (const id of DATA.territoryIds) {
   merged[id] = pc.intersection(u, bbox);
 }
 
-// Ártico: faixa polar menos todas as terras (exceto Svalbard, que é dele)
-const allLand = pc.union(...Object.values(merged));
-const arcticBand = [[[-180, ARCTIC_MIN], [180, ARCTIC_MIN], [180, LAT_MAX], [-180, LAT_MAX], [-180, ARCTIC_MIN]]];
-let arctic = pc.difference(arcticBand, allLand);
-if (polys.artico) arctic = pc.union(arctic, ...polys.artico.map((p) => [p]));
-// remove pedacinhos muito pequenos de gelo entre ilhas
-arctic = arctic.filter((poly) => polyArea(poly[0].map(project)) > 30);
+// Ártico: calota de gelo desenhada (já em coordenadas do mapa), no topo, como a Antártida embaixo.
+// A borda de cima é cortada pela margem do mapa e a costa de baixo é irregular.
+// ruído suave determinístico (para a costa parecer natural)
+function noise(x, step, seed) {
+  const hash = (i) => {
+    const v = Math.sin(i * 127.1 + seed * 311.7) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  const i = Math.floor(x / step);
+  const f = x / step - i;
+  const t = f * f * (3 - 2 * f);
+  return hash(i) * (1 - t) + hash(i + 1) * t - 0.5;
+}
+function arcticCoast(x) {
+  let y = 50 + 8 * Math.sin(x / 83 + 0.5) + 4 * Math.sin(x / 37 + 2.1);
+  y += 16 * noise(x, 55, 1) + 8 * noise(x, 19, 2) + 4 * noise(x, 7, 3);
+  for (const [cx, depth, width] of [[230, 10, 45], [560, 14, 60], [1150, 16, 70], [1480, 9, 40], [1760, 12, 55]]) {
+    y += depth * Math.exp(-(((x - cx) / width) ** 2));
+  }
+  return y;
+}
+const ARCTIC_PIECES = [[30, 940], [985, 1972]];
+function arcticPiece(x0, x1) {
+  const ring = [[x0, 0]];
+  for (let x = x0; x <= x1; x += 3) {
+    const t = Math.min(1, (x - x0) / 45, (x1 - x) / 45);
+    const ease = Math.sin((Math.max(0, t) * Math.PI) / 2); // pontas arredondadas
+    ring.push([x, arcticCoast(x) * ease]);
+  }
+  ring.push([x1, 0], [x0, 0]);
+  return [ring];
+}
+function iceIsland(cx, cy, r, seed) {
+  const ring = [];
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    const rr = r * (1 + 0.25 * Math.sin(a * 3 + seed) + 0.12 * Math.sin(a * 5 + seed * 2));
+    ring.push([cx + Math.cos(a) * rr * 1.5, cy + Math.sin(a) * rr]);
+  }
+  ring.push(ring[0]);
+  return [ring];
+}
+const arctic = ARCTIC_PIECES.map(([a, b]) => arcticPiece(a, b)).concat([
+  iceIsland(395, 80, 5, 1), iceIsland(1010, 82, 4, 2), iceIsland(1330, 80, 6, 3), iceIsland(1880, 82, 5, 4),
+]);
 merged.artico = arctic;
+const PROJECTED = new Set(['artico']); // territórios cujas coordenadas já estão projetadas
+const ARCTIC_LINES = [
+  ['alaska', [-156.5, 71.2]],
+  ['canada', [-78, 82]],
+  ['groenlandia', [-40, 82]],
+  ['noruega', [17, 78.8]],
+  ['russia', [100, 78.5]],
+];
 
 function polyArea(ring) {
   let a = 0;
@@ -205,11 +251,11 @@ function polyArea(ring) {
 }
 
 const r1 = (v) => Math.round(v * 10) / 10;
-function toPath(mp) {
+function toPath(mp, projected) {
   let d = '';
   for (const poly of mp) {
     for (const ring of poly) {
-      const pts = ring.map(project);
+      const pts = projected ? ring : ring.map(project);
       d += 'M' + pts.slice(0, -1).map(([x, y]) => r1(x) + ',' + r1(y)).join('L') + 'Z';
     }
   }
@@ -226,7 +272,6 @@ const LABEL_OVERRIDES = {
   noruega: [9, 61.5],
   suecia: [15.5, 62.5],
   chile: [-70.5, -27],
-  artico: [40, 81],
   antartida: [20, -69],
   indonesia: [113.5, -1],
   malasia: [102, 4],
@@ -320,8 +365,6 @@ const SEA_LINES = [
   ['africa_do_sul', 'antartida', [20, -34.9], [20, -69.6]],
   ['australia', 'antartida', [135, -35], [135, -66]],
   ['nova_zelandia', 'antartida', [168, -46.7], [166, -71]],
-  ['alaska', 'artico', [-156.5, 71.3], [-156.5, 76]],
-  ['noruega', 'artico', [25, 71.1], [25, 76]],
   // Atravessa a borda do mapa (estreito de Bering)
   ['alaska', 'russia', [-168.5, 65.7], [-180, 65.7], 'wrap'],
   ['alaska', 'russia', [180, 65.7], [174, 65.7], 'wrap'],
@@ -331,7 +374,9 @@ const territories = {};
 for (const id of DATA.territoryIds) {
   const mp = merged[id];
   let label;
-  if (LABEL_OVERRIDES[id]) {
+  if (id === 'artico') {
+    label = [1150, 30];
+  } else if (LABEL_OVERRIDES[id]) {
     label = project(LABEL_OVERRIDES[id]);
   } else {
     let best = null, bestA = -1;
@@ -342,7 +387,7 @@ for (const id of DATA.territoryIds) {
     const p = polylabel(best.map((ring) => ring.map(project)), 0.5);
     label = [p[0], p[1]];
   }
-  const t = { d: toPath(mp), label: [r1(label[0]), r1(label[1])] };
+  const t = { d: toPath(mp, PROJECTED.has(id)), label: [r1(label[0]), r1(label[1])] };
   if (CALLOUTS[id]) {
     const b = project(CALLOUTS[id]);
     t.anchor = t.label;
@@ -355,7 +400,7 @@ for (const id of DATA.territoryIds) {
 const continentPaths = {};
 for (const c of Object.keys(DATA.continents)) {
   const ids = DATA.territoryIds.filter((id) => DATA.territories[id].continent === c);
-  continentPaths[c] = toPath(pc.union(...ids.map((id) => merged[id])));
+  continentPaths[c] = toPath(pc.union(...ids.map((id) => merged[id])), ids.every((id) => PROJECTED.has(id)));
 }
 
 // Verificação: compara fronteiras terrestres com a lista em data.js
@@ -376,6 +421,9 @@ for (const p of landPairs) {
   if (!DATA.territories[a].neighbors.includes(b)) console.log('Fronteira terrestre não listada:', p);
 }
 
+for (const [a] of ARCTIC_LINES) {
+  if (!DATA.territories[a].neighbors.includes('artico')) console.log('Linha do Ártico sem fronteira:', a);
+}
 for (const [a, b] of SEA_LINES) {
   if (!DATA.territories[a].neighbors.includes(b)) console.log('Linha marítima sem fronteira:', a, b);
 }
@@ -409,7 +457,10 @@ const out =
       const [x1, y1] = project(p).map(r1);
       const [x2, y2] = project(q).map(r1);
       return wrap ? { a, b, x1, y1, x2, y2, wrap: true } : { a, b, x1, y1, x2, y2 };
-    }),
+    }).concat(ARCTIC_LINES.map(([a, p]) => {
+      const [x1, y1] = project(p).map(r1);
+      return { a, b: 'artico', x1, y1, x2: x1, y2: r1(arcticCoast(x1) - 4) };
+    })),
   }) +
   ';\n';
 fs.writeFileSync(path.join(__dirname, '..', 'js', 'mapdata.js'), out);

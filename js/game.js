@@ -3,7 +3,8 @@
  *
  * Fluxo de uma partida:
  *   setup-continent -> setup-place -> [attack/move por jogador] -> trade
- *   -> reinforce -> [attack/move por jogador] -> trade -> reinforce -> ...
+ *   -> reinforce-continent -> reinforce-territory -> [attack/move por jogador] -> trade -> ...
+ * Nas etapas de colocação todos os jogadores passam, na ordem, antes da próxima etapa.
  */
 (function () {
   const D = typeof module !== 'undefined' && module.exports ? require('./data.js') : window.WAR_DATA;
@@ -32,7 +33,8 @@
     attack: 'Ataque',
     move: 'Passagem de exércitos',
     trade: 'Troca de cartas',
-    reinforce: 'Reforços',
+    'reinforce-continent': 'Reforços — bônus de continente',
+    'reinforce-territory': 'Reforços — bônus de territórios',
     over: 'Fim de jogo',
   };
 
@@ -206,7 +208,8 @@
       switch (this.stage) {
         case 'setup-continent': return this.advanceSetupContinent();
         case 'setup-place': return this.advanceSetupPlace();
-        case 'reinforce': return this.advanceReinforce();
+        case 'reinforce-continent': return this.advanceReinforceContinent();
+        case 'reinforce-territory': return this.advanceReinforceTerritory();
         case 'trade':
           if (this.hasValidSet(this.current)) { this.tradeSub = 'choose'; this.emit('trade-choose'); }
           else this.advanceTrade();
@@ -252,29 +255,33 @@
     }
 
     // ---------- reforços (início de cada rodada a partir da 2ª) ----------
+    // Primeiro todos colocam o bônus de continente; depois todos colocam o bônus de territórios.
     startReinforceStage() {
       this.round++;
-      this.stage = 'reinforce';
-      this.current = -1;
       this.log('— Rodada ' + this.round + ' —');
-      this.advanceReinforce();
+      this.stage = 'reinforce-continent';
+      this.current = -1;
+      this.advanceReinforceContinent();
     }
 
-    reinforcePools(p) {
-      const pools = this.continentPools(p);
-      pools.push({
-        amount: Math.floor(this.territoriesOf(p).length / 2),
-        continent: null,
-        label: 'bônus de territórios',
-      });
-      return pools.filter((x) => x.amount > 0);
+    advanceReinforceContinent() {
+      const p = this.nextAlive(this.current, (i) => this.continentPools(i).length > 0);
+      if (p === -1) {
+        this.stage = 'reinforce-territory';
+        this.current = -1;
+        return this.advanceReinforceTerritory();
+      }
+      this.setCurrent(p);
+      this.beginPlacement(this.continentPools(p));
     }
 
-    advanceReinforce() {
-      const p = this.nextAlive(this.current, (i) => this.reinforcePools(i).length > 0);
+    territoryBonus(p) { return Math.floor(this.territoriesOf(p).length / 2); }
+
+    advanceReinforceTerritory() {
+      const p = this.nextAlive(this.current, (i) => this.territoryBonus(i) > 0);
       if (p === -1) return this.startAttackStage();
       this.setCurrent(p);
-      this.beginPlacement(this.reinforcePools(p));
+      this.beginPlacement([{ amount: this.territoryBonus(p), continent: null, label: 'bônus de territórios' }]);
     }
 
     // ---------- ataque ----------

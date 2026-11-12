@@ -29,8 +29,9 @@ python3 -m http.server 8000   # depois acesse http://localhost:8000
    - **Trocas** (na ordem, depois que todos atacaram): 4 cartas do mesmo naipe (o coringa vale por qualquer
      um) valem 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40… exércitos, contando as trocas de todos os jogadores.
      Cada carta com um território seu dá +3 exércitos nele. Quem não tem troca possível é pulado.
-   - **Reforços** da rodada seguinte: bônus de cada continente dominado (colocado no próprio continente)
-     + metade do número de territórios (para baixo).
+   - **Reforços** da rodada seguinte: primeiro todos os jogadores, na ordem, colocam o bônus de cada
+     continente dominado (no próprio continente); depois todos, na ordem, colocam o bônus de territórios
+     (metade do número de territórios, para baixo).
 6. Quem elimina um jogador recebe as cartas dele. Vence quem dominar o mundo.
 
 ### Bônus dos continentes
