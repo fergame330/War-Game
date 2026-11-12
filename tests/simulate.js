@@ -21,10 +21,38 @@ function seeded(seed) {
   return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 }
 
-function play(numPlayers, seed) {
+function play(numPlayers, seed, mode) {
   const rng = seeded(seed);
   const pick = (a) => a[Math.floor(rng() * a.length)];
-  const g = new Game(numPlayers, rng);
+  const g = new Game(numPlayers, rng, { mode: mode || 'solo' });
+  if (g.teamMode) {
+    // ninguém da mesma equipe joga em turnos seguidos
+    for (let i = 1; i < g.players.length; i++) assert.notStrictEqual(g.players[i].team, g.players[i - 1].team);
+  }
+  // ações de equipe aleatórias (vassalagem, retomada, envio de carta)
+  const teamActions = () => {
+    if (!g.teamMode || g.stage === 'over') return;
+    const allies = g.alliesOf(g.current);
+    if (allies.length && rng() < 0.15) {
+      const cands = g.vassalCandidates();
+      if (cands.length) {
+        const id = pick(cands), before = g.armies[id], a = pick(allies);
+        assert(g.vassal(id, a).ok);
+        assert.strictEqual(g.armies[id], Math.ceil(before / 2));
+        assert.strictEqual(g.owner[id], a);
+      }
+    }
+    if (rng() < 0.1) {
+      const mine = g.unvassalCandidates();
+      if (mine.length) assert(g.unvassal(pick(mine)).ok);
+    }
+    if (allies.length && g.player.cards.length >= 2 && rng() < 0.1) {
+      const n = g.player.cards.length, a = pick(allies), na = g.players[a].cards.length;
+      assert(g.sendCard(pick(g.player.cards).id, a).ok);
+      assert.strictEqual(g.player.cards.length, n - 2);
+      assert.strictEqual(g.players[a].cards.length, na + 1);
+    }
+  };
   const total = D.territoryIds.length;
   const counts = g.players.map((_, i) => g.territoriesOf(i).length);
   for (let i = 1; i < counts.length; i++) assert(counts[i] <= counts[i - 1]);
@@ -45,6 +73,7 @@ function play(numPlayers, seed) {
     if (g.round > 300) { if (process.env.DEBUG) console.log(g.players.map((p, i) => p.name + ":" + g.territoriesOf(i).length + "/" + g.totalArmies(i) + "/c" + p.cards.length).join(" "), "trocas", g.tradeCount); return { round: g.round, unfinished: true }; }
     if (g.stage === 'reinforce-continent') assert(g.pool && g.pool.continent, 'bônus de continente fora de ordem');
     if (g.stage === 'reinforce-territory') assert(g.pool && !g.pool.continent, 'bônus de território fora de ordem');
+    if (g.isPlacing() && g.poolRemaining === g.pool.amount) teamActions();
     if (g.isPlacing()) {
       const opts = g.territoriesOf(g.current).filter((t) => g.canPlaceOn(t));
       assert(opts.length, 'sem território para colocar');
@@ -81,6 +110,15 @@ function play(numPlayers, seed) {
       }
     } else if (g.stage === 'move') {
       for (const id of g.territoriesOf(g.current)) assert(g.armies[id] >= 1);
+      teamActions();
+      // passagem para aliado: chega metade
+      const allyMoves = [];
+      for (const f of g.territoriesOf(g.current)) for (const t of g.moveTargets(f)) if (g.isAllyMove(f, t)) allyMoves.push([f, t]);
+      if (allyMoves.length && rng() < 0.3) {
+        const [f, t] = pick(allyMoves), n = g.maxMove(f, t), before = g.armies[t];
+        assert(g.move(f, t, n));
+        assert.strictEqual(g.armies[t], before + Math.floor(n / 2));
+      }
       const from = pick(g.territoriesOf(g.current));
       const targets = g.moveTargets(from);
       if (targets.length) {
@@ -90,6 +128,17 @@ function play(numPlayers, seed) {
       assert(g.endTurn());
     }
     // invariantes
+    for (const id of D.territoryIds) {
+      if (g.stage === 'attack' && g.owner[id] === g.current) {
+        for (const t of g.attackTargets(id)) assert(!g.isAlly(g.current, g.owner[t]), 'ataque a aliado');
+      }
+      if (g.vassalOf[id] !== undefined) {
+        assert(g.isAlly(g.owner[id], g.vassalOf[id]), 'vassalo com quem não é aliado');
+        assert(g.players[g.vassalOf[id]].alive, 'vassalo de jogador eliminado');
+      }
+    }
+    g.players.forEach((pl, i) => { if (pl.alive) assert(g.territoriesOf(i).length >= 1); });
+    assert.strictEqual(g.players.reduce((a, _, i) => a + g.territoryCount(i), 0), total);
     let sum = 0;
     for (const id of D.territoryIds) {
       assert(g.armies[id] >= 0);
@@ -99,14 +148,22 @@ function play(numPlayers, seed) {
     assert.strictEqual(sum, total);
   }
   assert.strictEqual(g.stage, 'over', 'partida travou');
-  assert(D.territoryIds.every((id) => g.owner[id] === g.winner));
+  assert(D.territoryIds.every((id) => g.players[g.owner[id]].team === g.winnerTeam));
   return { round: g.round, trades: g.tradeCount };
 }
 
-const n = Number(process.argv[2] || 16);
-let rounds = 0, unfinished = 0;
-for (let i = 0; i < n; i++) {
-  const r = play(2 + (i % 8), 1000 + i);
-  if (r.unfinished) unfinished++; else rounds += r.round;
+module.exports = play;
+
+if (require.main === module) {
+  const n = Number(process.argv[2] || 28);
+  let rounds = 0, unfinished = 0;
+  const configs = [];
+  for (let k = 2; k <= 9; k++) configs.push([k, 'solo']);
+  configs.push([4, 'duplas'], [6, 'duplas'], [8, 'duplas'], [6, 'trios'], [9, 'trios'], [8, 'quartetos']);
+  for (let i = 0; i < n; i++) {
+    const [players, mode] = configs[i % configs.length];
+    const r = play(players, 1000 + i, mode);
+    if (r.unfinished) unfinished++; else rounds += r.round;
+  }
+  console.log(`OK: ${n} partidas simuladas, média de ${(rounds / Math.max(1, n - unfinished)).toFixed(1)} rodadas` + (unfinished ? `, ${unfinished} sem vencedor após 300 rodadas` : ''));
 }
-console.log(`OK: ${n} partidas simuladas, média de ${(rounds / Math.max(1, n - unfinished)).toFixed(1)} rodadas` + (unfinished ? `, ${unfinished} sem vencedor após 300 rodadas` : ''));

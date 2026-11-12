@@ -13,8 +13,7 @@
     eu: { name: 'Europa', bonus: 4, color: '#7fa3c9' },
     as: { name: 'Ásia', bonus: 4, color: '#b98fc9' },
     oc: { name: 'Oceania', bonus: 2, color: '#6bb3a6' },
-    an: { name: 'Antártida', bonus: 1, color: '#dfe7ef' },
-    ar: { name: 'Ártico', bonus: 1, color: '#cfe3f2' },
+    ag: { name: 'Arctogea', bonus: 1, color: '#dbe8f2' }, // Ártico + Antártida
   };
 
   // [id, nome, continente]
@@ -104,8 +103,8 @@
     ['australia', 'Austrália', 'oc'],
     ['nova_zelandia', 'Nova Zelândia', 'oc'],
 
-    ['antartida', 'Antártida', 'an'],
-    ['artico', 'Ártico', 'ar'],
+    ['antartida', 'Antártida', 'ag'],
+    ['artico', 'Ártico', 'ag'],
   ];
 
   // Fronteiras (bidirecionais). Fronteiras terrestres + ligações marítimas.

@@ -4,7 +4,7 @@
 (function () {
   const D = window.WAR_DATA;
   const M = window.WAR_MAP;
-  const { Game, SHAPE_NAMES, STAGE_NAMES, JOKER, isValidSet } = window.WarGame;
+  const { Game, MODES, TEAM_LETTERS, SHAPE_NAMES, STAGE_NAMES, JOKER, isValidSet } = window.WarGame;
   const SVGNS = 'http://www.w3.org/2000/svg';
   const $ = (s) => document.querySelector(s);
 
@@ -101,15 +101,18 @@
     if (cb) cb();
   }
 
-  function numberPicker({ title, text, min, max, value, confirmLabel, onConfirm }) {
+  function numberPicker({ title, text, min, max, value, confirmLabel, onConfirm, note }) {
     let v = Math.max(min, Math.min(max, value));
     const valueEl = h('div', { class: 'value' }, v);
     const range = h('input', { type: 'range', min, max, value: v, step: 1 });
+    const noteEl = h('p', { class: 'picker-note' });
     const set = (n) => {
       v = Math.max(min, Math.min(max, n));
       valueEl.textContent = v;
       range.value = v;
+      if (note) noteEl.textContent = note(v);
     };
+    if (note) noteEl.textContent = note(v);
     range.addEventListener('input', () => set(Number(range.value)));
     const modal = openModal([
       h('h2', null, title),
@@ -119,6 +122,7 @@
         range,
         h('button', { onclick: () => set(v + 1) }, '+'),
         valueEl),
+      note ? noteEl : null,
       h('div', { class: 'actions' },
         h('button', { class: 'btn btn-ghost', onclick: closeModal }, 'Cancelar'),
         h('button', { class: 'btn btn-ghost', onclick: () => set(max) }, 'Máximo'),
@@ -133,24 +137,41 @@
   // Telas iniciais
   // ------------------------------------------------------------------
   let chosenCount = 0;
+  let chosenMode = 'solo';
   const countGrid = $('#player-count');
-  for (let n = 2; n <= 9; n++) {
-    countGrid.append(h('button', {
-      onclick: (e) => {
-        chosenCount = n;
-        countGrid.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
-        e.currentTarget.classList.add('selected');
-        $('#btn-play').disabled = false;
-      },
-    }, n));
+  const modeGrid = $('#mode-grid');
+
+  function renderSetup() {
+    modeGrid.replaceChildren(...Object.entries(MODES).map(([key, m]) =>
+      h('button', {
+        class: key === chosenMode ? 'selected' : '',
+        onclick: () => {
+          chosenMode = key;
+          if (!MODES[key].counts.includes(chosenCount)) chosenCount = 0;
+          renderSetup();
+        },
+      }, m.name)));
+    const mode = MODES[chosenMode];
+    countGrid.replaceChildren(...mode.counts.map((n) =>
+      h('button', {
+        class: n === chosenCount ? 'selected' : '',
+        onclick: () => { chosenCount = n; renderSetup(); },
+      }, n, mode.teamSize > 1 ? h('small', null, n / mode.teamSize + ' × ' + mode.teamSize) : null)));
+    $('#mode-desc').textContent = mode.teamSize > 1
+      ? 'Equipes de ' + mode.teamSize + ' jogadores. Aliados não se atacam, podem trocar exércitos, cartas e territórios (vassalagem). ' +
+        (chosenCount ? chosenCount / mode.teamSize + ' equipes de ' + mode.teamSize + '.' : '')
+      : 'Cada um por si.';
+    $('#btn-play').disabled = !chosenCount;
   }
+  renderSetup();
+
   $('#btn-start').addEventListener('click', () => showScreen('setup-screen'));
   $('#btn-back').addEventListener('click', () => showScreen('start-screen'));
-  $('#btn-play').addEventListener('click', () => chosenCount && startGame(chosenCount));
+  $('#btn-play').addEventListener('click', () => chosenCount && startGame(chosenCount, chosenMode));
 
-  function startGame(n) {
+  function startGame(n, mode) {
     resetUi();
-    game = new Game(n);
+    game = new Game(n, undefined, { mode });
     game.on(onGameEvent);
     showScreen('game-screen');
     buildMap();
@@ -159,6 +180,8 @@
     showOrderModal();
   }
 
+  const teamLabel = (p) => (game.teamMode ? h('span', { class: 'team-tag' }, TEAM_LETTERS[game.players[p].team]) : null);
+
   function showOrderModal() {
     const list = h('ol', { class: 'order-list' },
       game.players.map((p, i) =>
@@ -166,11 +189,13 @@
           h('span', { class: 'pos' }, i + 1 + 'º'),
           swatch(i),
           h('b', null, p.name),
+          game.teamMode ? h('span', { class: 'team-tag' }, game.teamName(p.team)) : null,
           h('span', { class: 'info' }, game.territoriesOf(i).length + ' territórios'))));
     openModal([
       h('h2', null, 'Cores e ordem sorteadas'),
       h('p', null, 'Os territórios foram divididos entre os jogadores e cada um recebeu 1 exército. ' +
-        'Quem começou com um continente inteiro coloca primeiro o bônus desse continente.'),
+        'Quem começou com um continente inteiro coloca primeiro o bônus desse continente.' +
+        (game.teamMode ? ' A ordem alterna as equipes: ninguém da mesma equipe joga em seguida.' : '')),
       list,
       h('div', { class: 'actions' },
         h('button', { class: 'btn', onclick: closeModal }, 'Começar')),
@@ -287,11 +312,13 @@
       }
       const g = s('g', { class: 'badge', transform: 'translate(' + x + ',' + y + ')', 'data-id': id });
       g.pos = [x, y];
+      const ring = s('circle', { class: 'vassal-ring', r: 17.5, visibility: 'hidden' });
       const c = s('circle', { r: 13 });
       const txt = s('text', { y: 0.5 });
-      const name = s('text', { class: 'tname', y: 25 });
+      const name = s('text', { class: 'tname', y: 27 });
       name.textContent = tName(id);
-      g.append(name, c, txt);
+      g.append(name, ring, c, txt);
+      g.ring = ring;
       g.circle = c;
       g.text = txt;
       badges.append(g);
@@ -496,6 +523,10 @@
       h('div', { class: 'tt-muted' }, D.continents[t.continent].name),
       h('div', null, swatch(o), ' ', game.players[o].name, ' · ', game.armies[id], ' exército(s)'),
     ];
+    if (game.teamMode) lines.push(h('div', { class: 'tt-muted' }, game.teamName(game.players[o].team)));
+    if (game.vassalOf[id] !== undefined) {
+      lines.push(h('div', null, 'Vassalo — dono original: ', swatch(game.vassalOf[id]), ' ', game.players[game.vassalOf[id]].name));
+    }
     if (game.pending[id]) lines.push(h('div', { class: 'warn' }, 'Conquistado — aguardando exércitos de ' + tName(game.pending[id])));
     if (game.stage === 'move' && o === game.current) {
       lines.push(h('div', null, 'Podem cruzar fronteira: ' + Math.max(0, Math.min(game.movable[id] || 0, game.armies[id] - 1))));
@@ -559,7 +590,9 @@
       return;
     }
     if (!game.canPlaceOn(id)) {
-      if (game.owner[id] !== game.current) toast('Esse território não é seu.', game.player.color);
+      if (game.owner[id] !== game.current) {
+        toast(game.isAlly(game.current, game.owner[id]) ? 'Esse território é do seu aliado (use vassalagem para trocar territórios).' : 'Esse território não é seu.', game.player.color);
+      }
       else toast('Esses exércitos só podem ir para o continente ' + D.continents[game.pool.continent].name + '.', game.player.color);
       return;
     }
@@ -587,6 +620,10 @@
       }
       ui.lastBattle = null;
       return scheduleRender();
+    }
+    if (game.isAlly(me, game.owner[id])) {
+      toast(tName(id) + ' é do seu aliado ' + game.players[game.owner[id]].name + ': aliados não se atacam.', game.player.color);
+      return;
     }
     // território inimigo
     if (ui.source && game.isNeighbor(ui.source, id)) {
@@ -665,7 +702,28 @@
   function moveClick(id) {
     const me = game.current;
     if (game.owner[id] !== me) {
-      toast('Só é possível passar exércitos entre seus territórios.', game.player.color);
+      if (ui.moveSource && game.isAllyMove(ui.moveSource, id) && game.maxMove(ui.moveSource, id) > 0) {
+        const from = ui.moveSource;
+        numberPicker({
+          title: 'Enviar para aliado',
+          text: 'De <b>' + tName(from) + '</b> para <b>' + tName(id) + '</b> (' + game.players[game.owner[id]].name +
+            '). Chega só a metade dos exércitos enviados, arredondando para baixo.',
+          min: 2,
+          max: game.maxMove(from, id),
+          value: game.maxMove(from, id),
+          confirmLabel: 'Enviar',
+          note: (v) => 'Saem ' + v + ', chegam ' + Math.floor(v / 2) + '.',
+          onConfirm: (n) => {
+            game.move(from, id, n);
+            if (!game.moveTargets(from).length) ui.moveSource = null;
+            scheduleRender();
+          },
+        });
+        return;
+      }
+      toast(game.isAlly(me, game.owner[id])
+        ? 'Para enviar a um aliado, selecione antes um território seu vizinho (chega metade).'
+        : 'Só é possível passar exércitos entre seus territórios ou para aliados.', game.player.color);
       return;
     }
     if (ui.moveSource && ui.moveSource !== id) {
@@ -799,7 +857,7 @@
 
     openModal([
       h('h2', null, 'Troca de cartas — ', chip(p)),
-      aiPromptRow(),
+      aiPromptRow(true),
       h('div', { class: 'trade-info' },
         h('div', null, 'Esta troca vale ', h('span', { class: 'big-number' }, game.nextTradeValue), ' exércitos'),
         h('div', { class: 'tt-muted' }, 'Trocas já feitas: ' + game.tradeCount)),
@@ -857,6 +915,15 @@
       h('ul', null,
         h('li', null, 'Bônus de cada continente dominado (colocado no próprio continente) + metade dos seus territórios (para baixo).'),
         h('li', null, 'Vence quem eliminar todos e dominar o mundo.')),
+      h('h3', null, 'Modos de equipe (duplas, trios, quartetos)'),
+      h('ul', null,
+        h('li', null, 'Aliados não se atacam; a ordem alterna as equipes.'),
+        h('li', null, 'Passagem para território de aliado: chega metade (para baixo).'),
+        h('li', null, 'Enviar carta a um aliado descarta outra carta aleatória (precisa de 2 cartas).'),
+        h('li', null, 'Vassalagem (na passagem ou colocação): cede um território ao aliado, que fica com metade dos exércitos (para cima). Mantenha pelo menos 1 território próprio. O vassalo conta como seu no bônus de territórios; só você pode retomá-lo, sem recuperar exércitos.'),
+        h('li', null, 'Continente só é dominado por um único jogador.'),
+        h('li', null, 'Eliminado: metade das cartas (para cima) vai para quem eliminou e o resto é sorteado entre os aliados dele.'),
+        h('li', null, 'Vence a equipe que dominar o mundo.')),
       h('h3', null, 'Bônus dos continentes'),
       h('ul', null, bonuses),
       h('h3', null, 'Controles'),
@@ -941,6 +1008,10 @@
       badge.setAttribute('class', bcls.join(' '));
       path.hatch.setAttribute('visibility', game.pending[id] ? 'visible' : 'hidden');
       badge.circle.style.fill = pl.color;
+      if (game.vassalOf[id] !== undefined) {
+        badge.ring.setAttribute('visibility', 'visible');
+        badge.ring.style.stroke = game.players[game.vassalOf[id]].color;
+      } else badge.ring.setAttribute('visibility', 'hidden');
       badge.text.style.fill = pl.textColor;
       badge.text.textContent = game.armies[id];
       const placed = placing && game.poolPlaced[id];
@@ -964,7 +1035,7 @@
       panel.style.borderColor = game.players[game.winner].color;
       panel.replaceChildren(
         h('div', { class: 'stage-name' }, 'Fim de jogo'),
-        h('div', { class: 'turn-head' }, swatch(game.winner), game.players[game.winner].name + ' dominou o mundo!'),
+        h('div', { class: 'turn-head' }, swatch(game.winner), winnerText() + ' dominou o mundo!'),
         h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: newGame }, 'Nova partida')));
       return;
     }
@@ -989,15 +1060,130 @@
   }
 
   // ---------- prompt para IA ----------
-  function aiPromptRow() {
+  function aiPromptRow(fromTrade) {
     if (!window.WarAiPrompt || !WarAiPrompt.canBuildAiPrompt(game)) return null;
     return h('div', { class: 'ai-row' },
-      h('button', {
+      game.teamMode ? h('button', {
         class: 'btn btn-small btn-ghost',
+        title: 'Vassalagem, retomar territórios e enviar cartas para aliados',
+        onclick: () => showTeamModal(fromTrade),
+      }, '👥 Equipe') : null,
+      h('button', {
         title: 'Baixa um arquivo com as regras, o estado do jogo e a ação da vez para enviar a uma IA',
+        class: 'btn btn-small btn-ghost ai-dl',
         onclick: downloadAiPrompt,
       }, '🤖 Baixar prompt p/ IA'),
       h('button', { class: 'btn btn-small btn-ghost', title: 'Copiar o prompt', onclick: copyAiPrompt }, 'Copiar'));
+  }
+
+  // ---------- ações de equipe ----------
+  function showTeamModal(returnToTrade) {
+    const me = game.current;
+    let selectedCard = null;
+    const modal = openModal([], {
+      wide: true,
+      onClose: () => {
+        if (returnToTrade && game && game.stage === 'trade' && game.tradeSub === 'choose') setTimeout(showTradeModal, 0);
+      },
+    });
+
+    const select = (options) => h('select', { class: 'select' }, options.map(([v, t]) => h('option', { value: v }, t)));
+
+    function build() {
+      const allies = game.alliesOf(me);
+      const out = [h('h2', null, game.teamName(game.players[me].team) + ' — ', chip(me))];
+      out.push(h('p', null, 'Aliados: ', ...(allies.length
+        ? allies.map((a, i) => [i ? ', ' : '', swatch(a), ' ', game.players[a].name])
+        : ['nenhum aliado vivo'])));
+
+      // Vassalagem
+      const vSec = [h('h3', null, 'Vassalagem')];
+      if (!(game.isPlacing() || game.stage === 'move')) {
+        vSec.push(h('p', null, 'Disponível só durante a passagem ou a colocação de exércitos.'));
+      } else if (!allies.length) {
+        vSec.push(h('p', null, 'Sem aliados vivos.'));
+      } else {
+        const cands = game.vassalCandidates();
+        if (!cands.length) {
+          vSec.push(h('p', null, 'Nenhum território pode ser cedido agora (é preciso manter pelo menos 1 território próprio).'));
+        } else {
+          const tSel = select(cands.map((id) => [id, tName(id) + ' (' + game.armies[id] + ' → fica ' + Math.ceil(game.armies[id] / 2) + ')']));
+          const aSel = select(allies.map((a) => [a, game.players[a].name]));
+          vSec.push(
+            h('p', null, 'O território passa a ser controlado pelo aliado e perde metade dos exércitos (fica a metade arredondada para cima). Continua contando como seu no bônus de territórios.'),
+            h('div', { class: 'team-row' }, tSel, h('span', null, 'para'), aSel,
+              h('button', {
+                class: 'btn btn-small',
+                onclick: () => {
+                  const r = game.vassal(tSel.value, Number(aSel.value));
+                  if (!r.ok) return toast(r.reason, game.player.color, 4000);
+                  toast(tName(tSel.value) + ' agora é vassalo de ' + game.players[Number(aSel.value)].name + '.', game.player.color);
+                  refresh();
+                },
+              }, 'Declarar vassalagem')));
+        }
+      }
+      out.push(h('div', { class: 'team-section' }, vSec));
+
+      // Retomar
+      const mine = game.myVassals();
+      const uSec = [h('h3', null, 'Seus territórios vassalos')];
+      if (!mine.length) uSec.push(h('p', null, 'Nenhum.'));
+      for (const id of mine) {
+        const chk = game.canUnvassal(id);
+        uSec.push(h('div', { class: 'team-row' },
+          h('span', { class: 'grow' }, tName(id), ' — com ', swatch(game.owner[id]), ' ', game.players[game.owner[id]].name, ' (' + game.armies[id] + ')'),
+          h('button', {
+            class: 'btn btn-small btn-ghost',
+            disabled: !chk.ok,
+            title: chk.ok ? 'Retoma o território (sem recuperar os exércitos perdidos)' : chk.reason,
+            onclick: () => {
+              const r = game.unvassal(id);
+              if (!r.ok) return toast(r.reason, game.player.color);
+              toast('Você retomou ' + tName(id) + '.', game.player.color);
+              refresh();
+            },
+          }, 'Retomar')));
+      }
+      out.push(h('div', { class: 'team-section' }, uSec));
+
+      // Enviar carta
+      const cSec = [h('h3', null, 'Enviar carta para aliado')];
+      const cards = game.players[me].cards;
+      if (!allies.length) cSec.push(h('p', null, 'Sem aliados vivos.'));
+      else if (!game.canSendCard().ok) cSec.push(h('p', null, 'É preciso ter pelo menos 2 cartas: ao enviar uma, outra carta aleatória da sua mão é descartada.'));
+      else {
+        const aSel = select(allies.map((a) => [a, game.players[a].name]));
+        cSec.push(
+          h('p', null, 'Escolha a carta. Ao enviar, outra carta aleatória da sua mão é descartada.'),
+          h('div', { class: 'cards-grid' }, cards.map((c) => cardEl(c, me, {
+            selectable: true,
+            selected: selectedCard === c.id,
+            onclick: () => { selectedCard = c.id; refresh(); },
+          }))),
+          h('div', { class: 'team-row' }, h('span', null, 'Para'), aSel,
+            h('button', {
+              class: 'btn btn-small',
+              disabled: !selectedCard,
+              onclick: () => {
+                const r = game.sendCard(selectedCard, Number(aSel.value));
+                if (!r.ok) return toast(r.reason, game.player.color);
+                selectedCard = null;
+                toast('Carta enviada. Descartada: ' + SHAPE_NAMES[r.discarded.shape] + ' · ' + tName(r.discarded.territory) + '.', game.player.color, 4000);
+                refresh();
+              },
+            }, 'Enviar carta')));
+      }
+      out.push(h('div', { class: 'team-section' }, cSec));
+      out.push(h('div', { class: 'actions' }, h('button', { class: 'btn', onclick: closeModal }, 'Fechar')));
+      return out;
+    }
+
+    function refresh() {
+      modal.replaceChildren(...build().flat(Infinity).filter(Boolean));
+      render();
+    }
+    refresh();
   }
 
   function downloadAiPrompt() {
@@ -1136,6 +1322,9 @@
       h('p', { class: 'instructions hint' },
         'Clique no território de origem e depois no destino (vizinho). Só os exércitos que já estavam no território ' +
         'no início da passagem podem cruzar uma fronteira, e sempre fica pelo menos 1.'),
+      game.teamMode && game.alliesOf(game.current).length
+        ? h('p', { class: 'instructions' }, 'Para um aliado: selecione seu território e clique no território vizinho do aliado (chega metade).')
+        : null,
       owned.length
         ? h('p', { class: 'instructions' }, 'Movimento livre dentro de: ', h('b', null, owned.map((c) => D.continents[c].name).join(', ')), '.')
         : null,
@@ -1153,11 +1342,12 @@
 
   function renderPlayers() {
     const rows = game.players.map((p, i) => {
-      const terrs = game.territoriesOf(i).length;
+      const terrs = game.territoryCount(i);
+      const ctrl = game.territoriesOf(i).length;
       return h('tr', { class: (i === game.current && game.stage !== 'over' ? 'current' : '') + (p.alive ? '' : ' dead') },
         h('td', { class: 'tt-muted' }, i + 1 + 'º'),
-        h('td', null, h('span', { class: 'name' }, swatch(i), p.name)),
-        h('td', { class: 'num' }, terrs),
+        h('td', null, h('span', { class: 'name' }, swatch(i), p.name, teamLabel(i))),
+        h('td', { class: 'num', title: ctrl !== terrs ? 'Controla ' + ctrl + ' (vassalos contam para o dono original)' : null }, terrs + (ctrl !== terrs ? '*' : '')),
         h('td', { class: 'num' }, game.totalArmies(i)),
         h('td', { class: 'num' }, p.cards.length));
     });
@@ -1190,11 +1380,16 @@
     $('#log-panel').replaceChildren(...items);
   }
 
+  function winnerText() {
+    if (!game.teamMode) return game.players[game.winner].name;
+    return game.teamName(game.winnerTeam) + ' (' + game.teamMembers(game.winnerTeam).map((m) => m.name).join(', ') + ')';
+  }
+
   function showWinner() {
     const w = game.winner;
     openModal(h('div', { class: 'winner-box' },
       h('div', { class: 'trophy' }, '🏆'),
-      h('h2', null, game.players[w].name + ' dominou o mundo!'),
+      h('h2', null, winnerText() + ' dominou o mundo!'),
       h('p', null, 'Vitória na rodada ' + game.round + ' após ' + game.tradeCount + ' troca(s) de cartas.'),
       h('div', { class: 'actions' },
         h('button', { class: 'btn btn-ghost', onclick: closeModal }, 'Ver o mapa'),
@@ -1208,7 +1403,7 @@
     game = null;
     lastLogLen = -1;
     chosenCount = 0;
-    countGrid.querySelectorAll('button').forEach((b) => b.classList.remove('selected'));
+    renderSetup();
     $('#btn-play').disabled = true;
     $('#toast-root').replaceChildren();
     showScreen('start-screen');

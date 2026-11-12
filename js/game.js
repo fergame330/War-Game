@@ -55,6 +55,15 @@
     return a;
   }
 
+  // Modos de jogo: tamanho da equipe e quantidades de jogadores permitidas
+  const MODES = {
+    solo: { name: 'Individual', teamSize: 1, counts: [2, 3, 4, 5, 6, 7, 8, 9] },
+    duplas: { name: 'Duplas', teamSize: 2, counts: [4, 6, 8] },
+    trios: { name: 'Trios', teamSize: 3, counts: [6, 9] },
+    quartetos: { name: 'Quartetos', teamSize: 4, counts: [8] },
+  };
+  const TEAM_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+
   function isValidSet(cards) {
     if (cards.length !== 4) return false;
     const shapes = new Set(cards.filter((c) => c.shape !== JOKER).map((c) => c.shape));
@@ -62,13 +71,18 @@
   }
 
   class Game {
-    constructor(numPlayers, rng) {
-      if (numPlayers < 2 || numPlayers > 9) throw new Error('Número de jogadores inválido');
+    constructor(numPlayers, rng, options) {
+      this.mode = (options && options.mode) || 'solo';
+      const mode = MODES[this.mode];
+      if (!mode || !mode.counts.includes(numPlayers)) throw new Error('Número de jogadores inválido para o modo');
       this.rng = rng || Math.random;
       this.logs = [];
       this.listeners = [];
+      this.teamMode = mode.teamSize > 1;
+      this.numTeams = this.teamMode ? numPlayers / mode.teamSize : numPlayers;
 
-      // Sorteia cores e ordem
+      // Sorteia cores e ordem. Nas equipes a ordem alterna as equipes (A B C A B C...),
+      // assim ninguém da mesma equipe joga em turnos seguidos.
       const colors = shuffle(COLORS, this.rng).slice(0, numPlayers);
       this.players = colors.map((c, i) => ({
         index: i,
@@ -77,7 +91,9 @@
         textColor: c.text,
         cards: [],
         alive: true,
+        team: i % this.numTeams,
       }));
+      this.vassalOf = {}; // território vassalo -> dono original (quem cedeu)
 
       // Divide os territórios: os primeiros da ordem recebem o resto da divisão
       this.owner = {};
@@ -100,7 +116,9 @@
       this.tradeSub = null;
       this.winner = null;
 
-      this.log('Partida iniciada com ' + numPlayers + ' jogadores.');
+      this.winnerTeam = null;
+      this.log('Partida iniciada com ' + numPlayers + ' jogadores' +
+        (this.teamMode ? ' (' + mode.name.toLowerCase() + ': ' + this.numTeams + ' equipes de ' + mode.teamSize + ').' : '.'));
       this.startSetupContinent();
     }
 
@@ -114,7 +132,15 @@
     }
 
     get player() { return this.players[this.current]; }
+    // territórios que o jogador controla (inclui vassalos recebidos de aliados)
     territoriesOf(p) { return D.territoryIds.filter((id) => this.owner[id] === p); }
+    // dono "original": territórios vassalos contam para quem os cedeu
+    countedOwner(id) { return this.vassalOf[id] !== undefined ? this.vassalOf[id] : this.owner[id]; }
+    territoryCount(p) { return D.territoryIds.filter((id) => this.countedOwner(id) === p).length; }
+    teamName(t) { return 'Equipe ' + TEAM_LETTERS[t]; }
+    isAlly(p, q) { return this.teamMode && p !== q && this.players[p].team === this.players[q].team; }
+    alliesOf(p) { return this.players.filter((pl, i) => pl.alive && this.isAlly(p, i)).map((pl) => pl.index); }
+    teamMembers(t) { return this.players.filter((pl) => pl.team === t); }
     totalArmies(p) { return this.territoriesOf(p).reduce((s, id) => s + this.armies[id], 0); }
     ownsContinent(p, c) {
       return D.territoryIds.every((id) => D.territories[id].continent !== c || this.owner[id] === p);
@@ -275,7 +301,7 @@
       this.beginPlacement(this.continentPools(p));
     }
 
-    territoryBonus(p) { return Math.floor(this.territoriesOf(p).length / 2); }
+    territoryBonus(p) { return Math.floor(this.territoryCount(p) / 2); }
 
     advanceReinforceTerritory() {
       const p = this.nextAlive(this.current, (i) => this.territoryBonus(i) > 0);
@@ -303,15 +329,17 @@
 
     get conqueredThisTurn() { return this.conquered[this.current]; }
 
+    isEnemyTerritory(id) { return this.owner[id] !== this.current && !this.isAlly(this.current, this.owner[id]); }
+
     canAttackFrom(id) {
       if (this.stage !== 'attack' || this.owner[id] !== this.current || this.pending[id]) return false;
       if (this.armies[id] < 2) return false;
-      return D.territories[id].neighbors.some((n) => this.owner[n] !== this.current);
+      return D.territories[id].neighbors.some((n) => this.isEnemyTerritory(n));
     }
 
     attackTargets(id) {
       if (!this.canAttackFrom(id)) return [];
-      return D.territories[id].neighbors.filter((n) => this.owner[n] !== this.current);
+      return D.territories[id].neighbors.filter((n) => this.isEnemyTerritory(n));
     }
 
     // Verifica se o ataque é permitido (inclusive a reserva para os territórios conquistados)
@@ -319,6 +347,7 @@
       if (this.stage !== 'attack') return { ok: false, reason: 'Não é fase de ataque.' };
       if (this.owner[from] !== this.current) return { ok: false, reason: 'Território de origem não é seu.' };
       if (this.owner[to] === this.current) return { ok: false, reason: 'Esse território já é seu.' };
+      if (this.isAlly(this.current, this.owner[to])) return { ok: false, reason: 'Não é possível atacar um aliado.' };
       if (!this.isNeighbor(from, to)) return { ok: false, reason: 'Os territórios não fazem fronteira.' };
       if (this.armies[from] < 2) return { ok: false, reason: 'É preciso ter mais de 1 exército para atacar.' };
       const attDice = Math.min(3, this.armies[from] - 1);
@@ -363,6 +392,7 @@
       if (this.armies[to] <= 0) {
         this.armies[to] = 0;
         this.owner[to] = this.current;
+        delete this.vassalOf[to];
         this.pending[to] = from;
         this.conquered[this.current] = true;
         result.conquered = true;
@@ -371,12 +401,12 @@
         if (this.territoriesOf(defender).length === 0) {
           const dp = this.players[defender];
           dp.alive = false;
-          const got = dp.cards.length;
-          this.player.cards.push(...dp.cards);
-          dp.cards = [];
           result.eliminated = defender;
-          this.log(dp.name + ' foi eliminado por ' + this.player.name + (got ? ' (recebeu ' + got + ' carta(s)).' : '.'), this.current);
-          if (this.players.filter((pl) => pl.alive).length === 1) {
+          this.log(dp.name + ' foi eliminado por ' + this.player.name + '.', this.current);
+          this.distributeCards(defender);
+          // territórios que ele tinha cedido como vassalos ficam de vez com os aliados
+          for (const id of Object.keys(this.vassalOf)) if (this.vassalOf[id] === defender) delete this.vassalOf[id];
+          if (new Set(this.players.filter((pl) => pl.alive).map((pl) => pl.team)).size === 1) {
             // ocupa automaticamente o que ficou pendente
             for (const t of Object.keys(this.pending)) {
               const src = this.pending[t];
@@ -387,7 +417,9 @@
             }
             this.stage = 'over';
             this.winner = this.current;
-            this.log(this.player.name + ' dominou o mundo e venceu a partida!', this.current);
+            this.winnerTeam = this.player.team;
+            this.log((this.teamMode ? this.teamName(this.player.team) + ' (' + this.teamMembers(this.player.team).map((m) => m.name).join(', ') + ')' : this.player.name) +
+              ' dominou o mundo e venceu a partida!', this.current);
           }
         }
       }
@@ -459,15 +491,20 @@
     // ---------- passagem de exércitos ----------
     freeMove(from, to) {
       const c = D.territories[from].continent;
-      return c === D.territories[to].continent && this.ownsContinent(this.current, c);
+      return this.owner[to] === this.current && c === D.territories[to].continent && this.ownsContinent(this.current, c);
     }
 
+    // passagem para território de aliado: chega metade (para baixo)
+    isAllyMove(from, to) { return this.owner[from] === this.current && this.isAlly(this.current, this.owner[to]); }
+
     maxMove(from, to) {
-      if (this.stage !== 'move' || from === to) return 0;
-      if (this.owner[from] !== this.current || this.owner[to] !== this.current) return 0;
+      if (this.stage !== 'move' || from === to || this.owner[from] !== this.current) return 0;
+      const ally = this.isAllyMove(from, to);
+      if (this.owner[to] !== this.current && !ally) return 0;
       if (this.freeMove(from, to)) return this.armies[from] - 1;
       if (!this.isNeighbor(from, to)) return 0;
-      return Math.max(0, Math.min(this.movable[from] || 0, this.armies[from] - 1));
+      const max = Math.max(0, Math.min(this.movable[from] || 0, this.armies[from] - 1));
+      return ally && max < 2 ? 0 : max; // para aliado é preciso enviar pelo menos 2 (chega 1)
     }
 
     moveTargets(from) {
@@ -476,6 +513,17 @@
 
     move(from, to, n) {
       if (n < 1 || n > this.maxMove(from, to)) return false;
+      if (this.isAllyMove(from, to)) {
+        if (n < 2) return false;
+        const arrive = Math.floor(n / 2);
+        this.movable[from] -= n;
+        this.armies[from] -= n;
+        this.armies[to] += arrive;
+        this.log(this.player.name + ' enviou ' + n + ' de ' + D.territories[from].name + ' para o aliado ' +
+          this.players[this.owner[to]].name + ' em ' + D.territories[to].name + ' (chegaram ' + arrive + ').', this.current);
+        this.emit('change');
+        return true;
+      }
       if (this.freeMove(from, to)) {
         // dentro do continente dominado: move primeiro os que não podem mais cruzar fronteiras
         const fixed = this.armies[from] - (this.movable[from] || 0);
@@ -512,6 +560,112 @@
       });
       this.conquered = this.players.map(() => false);
       if (given.length) this.emit('cards', given);
+    }
+
+    // ---------- ações de equipe ----------
+    // Vassalagem: só na própria vez, durante a passagem ou a colocação de exércitos
+    canVassal(id, ally) {
+      const no = (reason) => ({ ok: false, reason });
+      if (!this.teamMode) return no('Só existe vassalagem no modo de equipes.');
+      if (this.stage === 'over' || this.current < 0) return no('Partida encerrada.');
+      if (!(this.isPlacing() || this.stage === 'move')) return no('A vassalagem só pode ser feita durante a passagem ou a colocação de exércitos.');
+      if (this.owner[id] !== this.current) return no('O território não é seu.');
+      if (this.vassalOf[id] !== undefined) return no('Esse território já é vassalo: só o dono original pode retomá-lo.');
+      if (ally !== undefined && (!this.isAlly(this.current, ally) || !this.players[ally].alive)) return no('Escolha um aliado vivo.');
+      if (this.poolPlaced[id]) return no('Você acabou de colocar exércitos nesse território; desfaça a colocação antes.');
+      const ownLeft = this.territoriesOf(this.current).filter((t) => t !== id && this.vassalOf[t] === undefined).length;
+      if (ownLeft < 1) return no('Você precisa manter pelo menos 1 território que não seja vassalo.');
+      const pool = this.pool;
+      if (pool && pool.continent && D.territories[id].continent === pool.continent &&
+        !this.territoriesOf(this.current).some((t) => t !== id && D.territories[t].continent === pool.continent)) {
+        return no('Você ainda precisa colocar exércitos em ' + D.continents[pool.continent].name + ' e esse é seu último território lá.');
+      }
+      return { ok: true, remaining: Math.ceil(this.armies[id] / 2) };
+    }
+
+    vassalCandidates() { return this.territoriesOf(this.current).filter((id) => this.canVassal(id).ok); }
+
+    vassal(id, ally) {
+      const chk = this.canVassal(id, ally);
+      if (!chk.ok) return chk;
+      const before = this.armies[id];
+      this.armies[id] = Math.ceil(before / 2);
+      this.owner[id] = ally;
+      this.vassalOf[id] = this.current;
+      delete this.movable[id];
+      this.log(this.player.name + ' declarou ' + D.territories[id].name + ' vassalo de ' + this.players[ally].name +
+        ' (' + before + ' → ' + this.armies[id] + ' exércitos).', this.current);
+      this.emit('change');
+      return { ok: true };
+    }
+
+    // Retomar um território vassalo: só o dono original, na sua vez
+    canUnvassal(id) {
+      if (!this.teamMode || this.stage === 'over' || this.current < 0) return { ok: false, reason: 'Indisponível.' };
+      if (this.vassalOf[id] !== this.current) return { ok: false, reason: 'Só o dono original pode retomar o território.' };
+      if (this.pending[id]) return { ok: false, reason: 'Indisponível.' };
+      if (this.territoriesOf(this.owner[id]).length <= 1) {
+        return { ok: false, reason: 'É o último território de ' + this.players[this.owner[id]].name + '; retomá-lo eliminaria seu aliado.' };
+      }
+      return { ok: true };
+    }
+
+    myVassals() { return D.territoryIds.filter((id) => this.vassalOf[id] === this.current); }
+    unvassalCandidates() { return this.myVassals().filter((id) => this.canUnvassal(id).ok); }
+
+    unvassal(id) {
+      const chk = this.canUnvassal(id);
+      if (!chk.ok) return chk;
+      const holder = this.owner[id];
+      this.owner[id] = this.current;
+      delete this.vassalOf[id];
+      this.log(this.player.name + ' retomou ' + D.territories[id].name + ' de ' + this.players[holder].name + '.', this.current);
+      this.emit('change');
+      return { ok: true };
+    }
+
+    // Enviar carta a um aliado: uma outra carta aleatória da mão é descartada
+    canSendCard(ally) {
+      if (!this.teamMode || this.stage === 'over' || this.current < 0) return { ok: false, reason: 'Indisponível.' };
+      if (this.player.cards.length < 2) return { ok: false, reason: 'É preciso ter pelo menos 2 cartas (uma é descartada).' };
+      if (ally !== undefined && (!this.isAlly(this.current, ally) || !this.players[ally].alive)) return { ok: false, reason: 'Escolha um aliado vivo.' };
+      return { ok: true };
+    }
+
+    sendCard(cardId, ally) {
+      const chk = this.canSendCard(ally);
+      if (!chk.ok) return chk;
+      const hand = this.player.cards;
+      const card = hand.find((c) => c.id === cardId);
+      if (!card) return { ok: false, reason: 'Carta não encontrada.' };
+      this.player.cards = hand.filter((c) => c !== card);
+      this.players[ally].cards.push(card);
+      const di = Math.floor(this.rng() * this.player.cards.length);
+      const discarded = this.player.cards.splice(di, 1)[0];
+      this.log(this.player.name + ' enviou uma carta para ' + this.players[ally].name + ' e descartou outra.', this.current);
+      this.emit('change');
+      return { ok: true, card, discarded };
+    }
+
+    // Cartas de quem foi eliminado: no individual vão todas para quem eliminou; nas equipes,
+    // metade (arredondando para cima) para quem eliminou e o resto, sorteado, entre os aliados dele.
+    distributeCards(defender) {
+      const dp = this.players[defender];
+      const cards = shuffle(dp.cards, this.rng);
+      dp.cards = [];
+      if (!cards.length) return;
+      const allies = this.alliesOf(defender);
+      const toWinner = this.teamMode && allies.length ? Math.ceil(cards.length / 2) : cards.length;
+      this.player.cards.push(...cards.slice(0, toWinner));
+      const got = {};
+      for (const c of cards.slice(toWinner)) {
+        const a = allies[Math.floor(this.rng() * allies.length)];
+        this.players[a].cards.push(c);
+        got[a] = (got[a] || 0) + 1;
+      }
+      const parts = [this.player.name + ' recebeu ' + toWinner + ' carta(s) de ' + dp.name];
+      for (const [a, n] of Object.entries(got)) parts.push(this.players[a].name + ' recebeu ' + n);
+      this.log(parts.join('; ') + '.', this.current);
     }
 
     // ---------- cartas ----------
@@ -589,7 +743,7 @@
     }
   }
 
-  const api = { Game, COLORS, SHAPES, JOKER, SHAPE_NAMES, STAGE_NAMES, tradeValue, isValidSet };
+  const api = { Game, MODES, TEAM_LETTERS, COLORS, SHAPES, JOKER, SHAPE_NAMES, STAGE_NAMES, tradeValue, isValidSet };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.WarGame = api;
 })();

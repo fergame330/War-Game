@@ -171,7 +171,7 @@ button { font: inherit; }
 .turn-head .swatch { width: 22px; height: 22px; }
 .stage-name { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
 .ai-row { display: flex; gap: 6px; margin: 6px 0 2px; }
-.ai-row .btn:first-child { flex: 1; }
+.ai-row .ai-dl { flex: 1; }
 .instructions { color: var(--muted); margin: 8px 0; line-height: 1.4; }
 .instructions b { color: var(--text); }
 .big-number { font-size: 30px; font-weight: 800; color: var(--accent); }
@@ -409,6 +409,50 @@ button { font: inherit; }
 
 .winner-box { text-align: center; }
 .winner-box .trophy { font-size: 64px; }
+
+/* ---------- modos e equipes ---------- */
+.mode-grid { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.mode-grid button {
+  padding: 10px 16px;
+  font-weight: 700;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.mode-grid button:hover { border-color: var(--accent); }
+.mode-grid button.selected { background: var(--accent); color: #1b1300; border-color: var(--accent); }
+.start-box .h2-gap { margin-top: 22px; }
+.count-grid button { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.count-grid button small { font-size: 11px; font-weight: 600; opacity: .75; }
+.mode-desc { color: var(--muted); max-width: 380px; margin: 14px auto 0; line-height: 1.4; min-height: 2.8em; }
+.team-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(240, 180, 41, .18);
+  color: var(--accent);
+  margin-left: 4px;
+}
+.vassal-ring { fill: none; stroke-width: 3.5; stroke-dasharray: 4 2.5; pointer-events: none; }
+.team-section { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 10px; }
+.team-section h3 { margin: 8px 0 4px; font-size: 14px; color: var(--accent); }
+.team-section p { margin: 4px 0 8px; font-size: 13px; }
+.team-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.team-row .grow { flex: 1; min-width: 150px; }
+.select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  max-width: 100%;
+}
+.picker-note { margin: 4px 0 0; text-align: center; font-weight: 600; color: var(--accent) !important; }
 
 /* ---------- abas do painel (só aparecem em telas pequenas) ---------- */
 #sheet-tabs { display: none; }

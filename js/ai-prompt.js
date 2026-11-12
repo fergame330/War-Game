@@ -8,10 +8,26 @@
   const isNode = typeof module !== 'undefined' && module.exports;
   const D = isNode ? require('./data.js') : window.WAR_DATA;
   const W = isNode ? require('./game.js') : window.WarGame;
-  const { SHAPE_NAMES, STAGE_NAMES, tradeValue } = W;
+  const { SHAPE_NAMES, STAGE_NAMES, MODES, tradeValue } = W;
 
   const tn = (id) => D.territories[id].name;
   const cn = (c) => D.continents[c].name;
+
+  function teamRulesText(game) {
+    const m = MODES[game.mode];
+    return `## Modo de equipes (${m.name}: ${game.numTeams} equipes de ${m.teamSize})
+
+Valem todas as regras acima, com estas mudanças:
+- Jogadores da mesma equipe não podem se atacar. A ordem alterna as equipes, então ninguém da mesma equipe joga em turnos seguidos.
+- Na passagem é possível enviar exércitos para um território vizinho de um aliado, mas chega só a metade dos enviados, arredondando para baixo (envie pelo menos 2).
+- É possível enviar uma carta específica para um aliado, mas outra carta aleatória da sua mão (que não a enviada) é descartada. Por isso é preciso ter pelo menos 2 cartas.
+- Vassalagem: durante a passagem ou a colocação de exércitos você pode ceder um território seu para um aliado. Ele passa a ser controlado pelo aliado e perde metade dos exércitos (o que fica é arredondado para cima). Você precisa manter pelo menos 1 território próprio que não seja vassalo.
+- Territórios vassalos continuam contando como seus na contagem de territórios (bônus de territórios), mas são controlados pelo aliado, que pode atacar, colocar e passar exércitos com eles; o aliado não pode vassalá-los de novo nem devolvê-los.
+- O dono original pode retomar um território vassalo na própria vez, quando quiser, sem recuperar os exércitos perdidos (não é possível retomar o último território de um aliado).
+- Um continente só é dominado quando todos os seus territórios são controlados por um único jogador; se a equipe tem o continente dividido entre aliados, é preciso usar vassalagem para que um só membro o domine.
+- Quando um jogador é eliminado, metade das cartas dele (arredondada para cima) vai para quem o eliminou e o resto é sorteado, carta por carta, entre os aliados vivos dele.
+- Vence a equipe que eliminar todas as outras e dominar o mundo.`;
+  }
 
   function rulesText() {
     const bonuses = Object.values(D.continents).map((c) => c.name + ' +' + c.bonus).join(', ');
@@ -69,8 +85,9 @@ Bônus dos continentes: ${bonuses}.`;
       }
       const conts = game.continentsOf(i).map(cn);
       lines.push(
-        `${i + 1}. ${pl.name}${i === game.current ? ' (VOCÊ)' : ''} — ${game.territoriesOf(i).length} territórios, ` +
-          `${game.totalArmies(i)} exércitos, ${pl.cards.length} carta(s)` +
+        `${i + 1}. ${pl.name}${game.teamMode ? ' [' + game.teamName(pl.team) + ']' : ''}${i === game.current ? ' (VOCÊ)' : ''} — ` +
+          `${game.territoryCount(i)} territórios` + (game.territoriesOf(i).length !== game.territoryCount(i) ? ` (controla ${game.territoriesOf(i).length})` : '') + ', ' +
+          `${game.totalArmies(i)} exércitos nos territórios que controla, ${pl.cards.length} carta(s)` +
           (conts.length ? `, domina: ${conts.join(', ')}` : '')
       );
     });
@@ -91,7 +108,8 @@ Bônus dos continentes: ${bonuses}.`;
         const nb = D.territories[id].neighbors
           .map((n) => `${tn(n)} [${game.players[game.owner[n]].name} ${game.armies[n]}]`)
           .join(', ');
-        const pending = game.pending[id] ? ' (conquistado agora, vazio — aguardando exércitos de ' + tn(game.pending[id]) + ')' : '';
+        const pending = (game.pending[id] ? ' (conquistado agora, vazio — aguardando exércitos de ' + tn(game.pending[id]) + ')' : '') +
+          (game.vassalOf[id] !== undefined ? ' (vassalo: dono original ' + game.players[game.vassalOf[id]].name + ')' : '');
         lines.push(`- ${tn(id)} — ${game.players[o].name} (${game.armies[id]})${pending} — fronteiras: ${nb}`);
       }
     }
@@ -102,11 +120,18 @@ Bônus dos continentes: ${bonuses}.`;
     const p = game.current;
     const pl = game.players[p];
     const lines = [`## Seus dados (${pl.name})`];
+    if (game.teamMode) {
+      const allies = game.teamMembers(pl.team).filter((m) => m.index !== p);
+      lines.push(`Sua equipe: ${game.teamName(pl.team)}. Aliados: ` + allies.map((m) => m.name + (m.alive ? '' : ' (eliminado)')).join(', ') + '.');
+      const given = game.myVassals();
+      if (given.length) lines.push('Seus territórios cedidos como vassalos: ' + given.map((id) => `${tn(id)} (com ${game.players[game.owner[id]].name}, ${game.armies[id]})`).join(', ') + '.');
+    }
     const mine = game.territoriesOf(p);
-    lines.push(`Territórios (${mine.length}): ` + mine.map((id) => `${tn(id)} (${game.armies[id]})`).join(', '));
+    lines.push(`Territórios que você controla (${mine.length}): ` + mine.map((id) => `${tn(id)} (${game.armies[id]})` +
+      (game.vassalOf[id] !== undefined ? ' [vassalo de ' + game.players[game.vassalOf[id]].name + ']' : '')).join(', '));
     const conts = game.continentsOf(p);
     lines.push('Continentes dominados: ' + (conts.length ? conts.map((c) => `${cn(c)} (+${D.continents[c].bonus})`).join(', ') : 'nenhum'));
-    lines.push(`Bônus de territórios na próxima rodada: ${Math.floor(mine.length / 2)}`);
+    lines.push(`Bônus de territórios na próxima rodada: ${game.territoryBonus(p)}`);
     if (pl.cards.length) {
       lines.push('Suas cartas:');
       pl.cards.forEach((c, i) => {
@@ -191,7 +216,9 @@ Bônus dos continentes: ${bonuses}.`;
       any = true;
       const canCross = Math.max(0, Math.min(game.movable[from] || 0, game.armies[from] - 1));
       lines.push(`- ${tn(from)} (${game.armies[from]} exércitos; podem cruzar fronteira: ${canCross}) -> ` +
-        targets.map((t) => `${tn(t)} (até ${game.maxMove(from, t)}${game.freeMove(from, t) ? ', livre no continente' : ''})`).join(', '));
+        targets.map((t) => `${tn(t)} (até ${game.maxMove(from, t)}` +
+          (game.freeMove(from, t) ? ', livre no continente' : '') +
+          (game.isAllyMove(from, t) ? `, aliado ${game.players[game.owner[t]].name}: chega metade` : '') + ')').join(', '));
     }
     if (!any) lines.push('- nenhuma');
     lines.push('', 'Você pode fazer várias passagens nesta mesma resposta, respeitando as regras (exércitos que chegaram não podem cruzar outra fronteira; sempre fica 1 em cada território).',
@@ -211,6 +238,31 @@ Bônus dos continentes: ${bonuses}.`;
     if (set) lines.push('Exemplo de troca válida: cartas ' + set.map((c) => cards.indexOf(c) + 1).join(', ') + '.');
     lines.push('', 'Responda exatamente em um destes formatos (números das cartas da lista "Suas cartas"):', '```',
       'TROCAR <n1>, <n2>, <n3>, <n4>', '```', 'ou', '```', 'NÃO TROCAR', '```');
+    return lines.join('\n');
+  }
+
+  function teamActionText(game) {
+    if (!game.teamMode) return '';
+    const p = game.current;
+    const allies = game.alliesOf(p);
+    const lines = ['', '### Ações de equipe (opcionais, antes da ação principal)'];
+    if (!allies.length) {
+      lines.push('Você não tem aliados vivos.');
+      return lines.join('\n');
+    }
+    lines.push('Aliados vivos: ' + allies.map((a) => game.players[a].name).join(', ') + '.');
+    const vc = game.vassalCandidates();
+    if (game.isPlacing() || game.stage === 'move') {
+      lines.push('Vassalagem possível agora em: ' + (vc.length ? vc.map((id) => `${tn(id)} (${game.armies[id]} → fica ${Math.ceil(game.armies[id] / 2)})`).join(', ') : 'nenhum território') + '.');
+    } else {
+      lines.push('Vassalagem: não disponível nesta etapa (só na passagem ou colocação).');
+    }
+    const uc = game.unvassalCandidates();
+    lines.push('Territórios que você pode retomar: ' + (uc.length ? uc.map(tn).join(', ') : 'nenhum') + '.');
+    lines.push('Enviar carta: ' + (game.canSendCard().ok ? 'possível (use o número da carta em "Suas cartas"; outra carta aleatória é descartada)' : 'não é possível (precisa de pelo menos 2 cartas)') + '.');
+    lines.push('Se quiser fazer ações de equipe, coloque este bloco ANTES do bloco da ação principal:', '```', 'EQUIPE',
+      'VASSALAGEM <território> PARA <aliado>', 'DESVASSALAR <território>', 'ENVIAR CARTA <número> PARA <aliado>', 'FIM EQUIPE', '```',
+      '(use só as linhas que quiser; elas são executadas na ordem, antes da ação principal)');
     return lines.join('\n');
   }
 
@@ -237,6 +289,7 @@ Bônus dos continentes: ${bonuses}.`;
       '',
       rulesText(),
       '',
+      game.teamMode ? teamRulesText(game) + '\n' : null,
       `## Situação atual`,
       `Rodada ${game.round}. Etapa atual: ${STAGE_NAMES[game.stage] || game.stage}. Jogador da vez: ${pl.name}.`,
       '',
@@ -245,15 +298,15 @@ Bônus dos continentes: ${bonuses}.`;
       playerText(game),
       '',
       '## Sua ação agora',
-      actionText(game),
+      actionText(game) + teamActionText(game),
       '',
       '## Como responder',
       '- Execute apenas a ação da vez descrita em "Sua ação agora" — nada de etapas seguintes.',
-      '- Responda somente com o bloco da ação, no formato indicado, sem explicações.',
+      '- Responda somente com o bloco da ação, no formato indicado, sem explicações' + (game.teamMode ? ' (opcionalmente precedido do bloco EQUIPE).' : '.'),
       '- Escreva os nomes dos territórios exatamente como aparecem neste texto.',
       '- A ação precisa respeitar as regras; se não for possível agir, use a opção de encerrar/não fazer nada.',
       '',
-    ].join('\n');
+    ].filter((x) => x !== null).join('\n');
   }
 
   function aiPromptFileName(game) {

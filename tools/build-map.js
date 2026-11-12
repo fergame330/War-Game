@@ -397,10 +397,12 @@ for (const id of DATA.territoryIds) {
 }
 
 // Contornos dos continentes
+// (feito já em coordenadas do mapa, pois a Arctogea junta o Ártico desenhado com a Antártida real)
+const projectedOf = (id) => (PROJECTED.has(id) ? merged[id] : merged[id].map((poly) => poly.map((ring) => ring.map(project))));
 const continentPaths = {};
 for (const c of Object.keys(DATA.continents)) {
   const ids = DATA.territoryIds.filter((id) => DATA.territories[id].continent === c);
-  continentPaths[c] = toPath(pc.union(...ids.map((id) => merged[id])), ids.every((id) => PROJECTED.has(id)));
+  continentPaths[c] = toPath(pc.union(...ids.map(projectedOf)), true);
 }
 
 // Verificação: compara fronteiras terrestres com a lista em data.js

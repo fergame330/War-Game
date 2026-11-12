@@ -11,7 +11,7 @@ Abra o `index.html` no navegador (duplo clique já funciona). Também dá para s
 python3 -m http.server 8000   # depois acesse http://localhost:8000
 ```
 
-1. **Começar jogo** → escolha de 2 a 9 jogadores.
+1. **Começar jogo** → escolha o modo (individual, duplas, trios ou quartetos) e o número de jogadores.
 2. As cores e a ordem são sorteadas e os 79 territórios são divididos igualmente; os primeiros da ordem
    ficam com o que sobrar da divisão. Cada território começa com 1 exército.
 3. Quem começa com um continente inteiro coloca o bônus dele nesse continente.
@@ -41,7 +41,35 @@ python3 -m http.server 8000   # depois acesse http://localhost:8000
 | América Central | 3 | | Europa | 4 |
 | América do Sul | 4 | | Ásia | 4 |
 | África | 5 | | Oceania | 2 |
-| Antártida | 1 | | Ártico | 1 |
+| Arctogea (Ártico + Antártida) | 1 | | | |
+
+### Modos de equipe
+
+| Modo | Jogadores | Ordem dos turnos |
+|---|---|---|
+| Duplas | 4, 6 ou 8 | A B A B · A B C A B C · A B C D A B C D |
+| Trios | 6 ou 9 | A B A B A B · A B C A B C A B C |
+| Quartetos | 8 | A B A B A B A B |
+
+Ninguém da mesma equipe joga em turnos seguidos. O jogo é igual ao individual, com estas mudanças:
+
+- Aliados não se atacam.
+- **Passagem para aliado**: chega a metade dos exércitos enviados (arredondando para baixo).
+- **Enviar carta**: dá para mandar uma carta específica a um aliado, mas outra carta aleatória da mão é
+  descartada (é preciso ter pelo menos 2 cartas).
+- **Vassalagem** (na passagem ou na colocação de exércitos): um território seu passa a ser controlado por um
+  aliado e perde metade dos exércitos (o que fica é arredondado para cima). É preciso manter pelo menos 1
+  território próprio. O aliado pode atacar, colocar e passar exércitos com ele, mas não pode vassalá-lo nem
+  devolvê-lo. O território continua contando para o dono original na contagem de territórios (bônus). O dono
+  original pode retomá-lo na própria vez, sem recuperar os exércitos (só não pode retomar o último território
+  do aliado, o que o eliminaria). No mapa, o vassalo tem um anel tracejado na cor do dono original.
+- **Continente** só é dominado se todos os territórios forem de um único jogador; para juntar um continente
+  dividido entre aliados, use vassalagem.
+- **Eliminação**: metade das cartas do eliminado (arredondada para cima) vai para quem o eliminou e o resto é
+  sorteado, carta por carta, entre os aliados dele (se não houver aliados vivos, vão todas para quem eliminou).
+- Vence a equipe que eliminar todas as outras.
+
+As ações de equipe ficam no botão **👥 Equipe** do painel do turno.
 
 ### Controles
 
@@ -101,5 +129,6 @@ cd tools && npm install && npm run build-map
 ### Testes
 
 ```bash
-node tests/simulate.js      # simula partidas e confere as regras/invariantes
+node tests/simulate.js      # simula partidas (individuais e em equipe) e confere as regras/invariantes
+node tests/teams.js         # testes das regras dos modos de equipe
 ```
