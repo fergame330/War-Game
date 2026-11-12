@@ -201,9 +201,9 @@
       ui.source = ui.target = ui.moveSource = null;
       ui.lastBattle = null;
       if (!ui.starting) announceTurn();
-    } else if (type === 'card') {
-      const p = game.players[payload.player];
-      toast(p.name + ' ganhou uma carta (' + SHAPE_NAMES[payload.card.shape] + ' · ' + tName(payload.card.territory) + ')', p.color, 3500);
+    } else if (type === 'cards') {
+      const names = payload.map((x) => game.players[x.player].name);
+      toast('Cartas entregues para: ' + names.join(', '), null, 4000);
     } else if (type === 'trade-choose') {
       setTimeout(() => { if (game.stage === 'trade' && game.tradeSub === 'choose') showTradeModal(); }, 0);
     }
@@ -799,6 +799,7 @@
 
     openModal([
       h('h2', null, 'Troca de cartas — ', chip(p)),
+      aiPromptRow(),
       h('div', { class: 'trade-info' },
         h('div', null, 'Esta troca vale ', h('span', { class: 'big-number' }, game.nextTradeValue), ' exércitos'),
         h('div', { class: 'tt-muted' }, 'Trocas já feitas: ' + game.tradeCount)),
@@ -834,6 +835,9 @@
         h('li', null, 'Cores e ordem são sorteadas; os territórios são divididos igualmente (os primeiros da ordem recebem o que sobrar).'),
         h('li', null, 'Cada território começa com 1 exército. Quem começar com um continente inteiro coloca o bônus dele nesse continente.'),
         h('li', null, 'Depois, cada jogador recebe metade dos exércitos que tem (arredondado para baixo) para colocar onde quiser.')),
+      h('h3', null, 'Rodada'),
+      h('ul', null,
+        h('li', null, 'Cada etapa passa por todos os jogadores, na ordem, antes da próxima: reforço de continentes → reforço de territórios → ataques → passagem → cartas → trocas.')),
       h('h3', null, 'Batalha'),
       h('ul', null,
         h('li', null, 'Ataca quem tem mais de 1 exército no território. O atacante rola ', h('b', null, 'exércitos − 1'), ' dados e o defensor ', h('b', null, 'exércitos'), ' dados (máximo de 3 cada).'),
@@ -846,7 +850,7 @@
         h('li', null, 'Dentro de um continente que é todo seu, você pode mover à vontade.')),
       h('h3', null, 'Cartas e trocas'),
       h('ul', null,
-        h('li', null, 'Quem conquistou ao menos 1 território na rodada ganha 1 carta (bolinha, quadrado, triângulo, estrela ou coringa).'),
+        h('li', null, 'Depois que todos fizeram a passagem, quem conquistou ao menos 1 território na rodada ganha 1 carta (bolinha, quadrado, triângulo, estrela ou coringa).'),
         h('li', null, '4 cartas do mesmo naipe valem: 4, 6, 8, 10, 12, 15, 20, 25, 30... (contagem de trocas de todos os jogadores).'),
         h('li', null, 'Carta com território seu: +3 exércitos nele. Quem elimina um jogador recebe as cartas dele.')),
       h('h3', null, 'Nova rodada'),
@@ -969,6 +973,7 @@
     const head = [
       h('div', { class: 'stage-name' }, stageLabel()),
       h('div', { class: 'turn-head' }, swatch(game.current), 'Vez de ' + p.name),
+      aiPromptRow(),
     ];
     let body = [];
     if (game.isPlacing()) body = placementPanel();
@@ -981,6 +986,47 @@
       ];
     }
     panel.replaceChildren(...head, ...body.filter(Boolean));
+  }
+
+  // ---------- prompt para IA ----------
+  function aiPromptRow() {
+    if (!window.WarAiPrompt || !WarAiPrompt.canBuildAiPrompt(game)) return null;
+    return h('div', { class: 'ai-row' },
+      h('button', {
+        class: 'btn btn-small btn-ghost',
+        title: 'Baixa um arquivo com as regras, o estado do jogo e a ação da vez para enviar a uma IA',
+        onclick: downloadAiPrompt,
+      }, '🤖 Baixar prompt p/ IA'),
+      h('button', { class: 'btn btn-small btn-ghost', title: 'Copiar o prompt', onclick: copyAiPrompt }, 'Copiar'));
+  }
+
+  function downloadAiPrompt() {
+    const text = WarAiPrompt.buildAiPrompt(game);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = h('a', { href: url, download: WarAiPrompt.aiPromptFileName(game) });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast('Prompt baixado. Envie para a IA e aplique a ação que ela responder.', game.player.color);
+  }
+
+  function copyAiPrompt() {
+    const text = WarAiPrompt.buildAiPrompt(game);
+    const done = () => toast('Prompt copiado.', game.player.color);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+    } else fallbackCopy(text, done);
+  }
+
+  function fallbackCopy(text, done) {
+    const ta = h('textarea', { style: 'position:fixed;left:-9999px;top:0' });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (_) { toast('Não foi possível copiar; use o botão de baixar.'); }
+    ta.remove();
   }
 
   function placementPanel() {
@@ -1058,7 +1104,6 @@
           ui.source = ui.target = null;
           ui.lastBattle = null;
           game.endAttack();
-          toast('Passagem de exércitos', game.player.color);
         },
       }, 'Encerrar ataques')));
     return out;
@@ -1094,7 +1139,7 @@
       owned.length
         ? h('p', { class: 'instructions' }, 'Movimento livre dentro de: ', h('b', null, owned.map((c) => D.continents[c].name).join(', ')), '.')
         : null,
-      game.conqueredThisTurn ? h('p', { class: 'instructions' }, 'Você conquistou território nesta rodada: ganhará 1 carta ao encerrar o turno.') : null,
+      game.conqueredThisTurn ? h('p', { class: 'instructions' }, 'Você conquistou território nesta rodada: ganhará 1 carta quando todos terminarem a passagem.') : null,
       h('div', { class: 'actions' },
         h('button', {
           class: 'btn',
@@ -1102,7 +1147,7 @@
             ui.moveSource = null;
             game.endTurn();
           },
-        }, 'Encerrar turno')),
+        }, 'Encerrar passagem')),
     ];
   }
 

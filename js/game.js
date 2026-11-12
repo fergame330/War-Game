@@ -2,9 +2,10 @@
  * Regras do jogo (sem nenhuma dependência de DOM).
  *
  * Fluxo de uma partida:
- *   setup-continent -> setup-place -> [attack/move por jogador] -> trade
- *   -> reinforce-continent -> reinforce-territory -> [attack/move por jogador] -> trade -> ...
- * Nas etapas de colocação todos os jogadores passam, na ordem, antes da próxima etapa.
+ *   setup-continent -> setup-place -> attack -> move -> trade
+ *   -> reinforce-continent -> reinforce-territory -> attack -> move -> trade -> ...
+ * Em cada etapa todos os jogadores jogam, na ordem, antes de passar para a próxima etapa
+ * (ex.: todos atacam; depois todos fazem a passagem; depois as cartas são entregues).
  */
 (function () {
   const D = typeof module !== 'undefined' && module.exports ? require('./data.js') : window.WAR_DATA;
@@ -94,11 +95,10 @@
       this.poolIndex = 0;
       this.poolPlaced = {};
       this.pending = {};
-      this.conqueredThisTurn = false;
+      this.conquered = this.players.map(() => false); // conquistou território nesta rodada?
       this.movable = {};
       this.tradeSub = null;
       this.winner = null;
-      this.lastCard = null;
 
       this.log('Partida iniciada com ' + numPlayers + ' jogadores.');
       this.startSetupContinent();
@@ -285,19 +285,23 @@
     }
 
     // ---------- ataque ----------
+    // Todos atacam, um de cada vez, na ordem
     startAttackStage() {
       this.stage = 'attack';
       this.current = -1;
-      this.startTurn(this.nextAlive(-1));
+      this.conquered = this.players.map(() => false);
+      this.advanceAttack();
     }
 
-    startTurn(p) {
+    advanceAttack() {
+      const p = this.nextAlive(this.current);
+      if (p === -1) return this.startMoveStage();
       this.pending = {};
-      this.conqueredThisTurn = false;
-      this.movable = {};
       this.stage = 'attack';
       this.setCurrent(p);
     }
+
+    get conqueredThisTurn() { return this.conquered[this.current]; }
 
     canAttackFrom(id) {
       if (this.stage !== 'attack' || this.owner[id] !== this.current || this.pending[id]) return false;
@@ -360,7 +364,7 @@
         this.armies[to] = 0;
         this.owner[to] = this.current;
         this.pending[to] = from;
-        this.conqueredThisTurn = true;
+        this.conquered[this.current] = true;
         result.conquered = true;
         this.log(this.player.name + ' conquistou ' + D.territories[to].name + ' de ' + this.players[defender].name + '.', this.current);
 
@@ -411,13 +415,45 @@
       return true;
     }
 
+    // Encerra os ataques do jogador da vez e passa para o próximo
     endAttack() {
       if (this.stage !== 'attack' || Object.keys(this.pending).length) return false;
-      this.stage = 'move';
-      this.movable = {};
-      for (const id of this.territoriesOf(this.current)) this.movable[id] = this.armies[id];
+      this.pending = {};
+      this.advanceAttack();
       this.emit('change');
       return true;
+    }
+
+    // ---------- passagem: depois que todos atacaram, todos passam exércitos, na ordem ----------
+    startMoveStage() {
+      this.stage = 'move';
+      this.current = -1;
+      this.advanceMove();
+    }
+
+    hasAnyMove() {
+      return this.territoriesOf(this.current).some((id) => this.armies[id] > 1 && this.moveTargets(id).length > 0);
+    }
+
+    advanceMove() {
+      for (;;) {
+        const p = this.nextAlive(this.current);
+        if (p === -1) {
+          this.movable = {};
+          this.giveCards();
+          return this.startTradeStage();
+        }
+        this.stage = 'move';
+        this.current = p;
+        this.movable = {};
+        for (const id of this.territoriesOf(p)) this.movable[id] = this.armies[id];
+        if (this.hasAnyMove()) {
+          this.current = -1;
+          this.setCurrent(p);
+          return;
+        }
+        this.log(this.players[p].name + ' não tem exércitos para passar.', p);
+      }
     }
 
     // ---------- passagem de exércitos ----------
@@ -456,22 +492,26 @@
       return true;
     }
 
+    // Encerra a passagem do jogador da vez e passa para o próximo
     endTurn() {
       if (this.stage !== 'move') return false;
-      this.lastCard = null;
-      if (this.conqueredThisTurn) {
-        const card = this.drawCard();
-        this.player.cards.push(card);
-        this.lastCard = { player: this.current, card };
-        this.log(this.player.name + ' ganhou uma carta.', this.current);
-        this.emit('card', this.lastCard);
-      }
-      this.movable = {};
-      const next = this.nextAlive(this.current);
-      if (next === -1) this.startTradeStage();
-      else this.startTurn(next);
+      this.advanceMove();
       this.emit('change');
       return true;
+    }
+
+    // Depois da passagem de todos: 1 carta para cada um que conquistou ao menos 1 território
+    giveCards() {
+      const given = [];
+      this.players.forEach((pl, i) => {
+        if (!pl.alive || !this.conquered[i]) return;
+        const card = this.drawCard();
+        pl.cards.push(card);
+        given.push({ player: i, card });
+        this.log(pl.name + ' ganhou uma carta.', i);
+      });
+      this.conquered = this.players.map(() => false);
+      if (given.length) this.emit('cards', given);
     }
 
     // ---------- cartas ----------

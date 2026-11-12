@@ -3,6 +3,7 @@
  * Uso: node tests/simulate.js [partidas]
  */
 const { Game, tradeValue } = require('../js/game.js');
+const { buildAiPrompt, aiPromptFileName } = require('../js/ai-prompt.js');
 const D = require('../js/data.js');
 const assert = require('assert');
 
@@ -30,7 +31,17 @@ function play(numPlayers, seed) {
   assert(counts[0] - counts[counts.length - 1] <= 1);
 
   let steps = 0;
+  let prevStage = g.stage;
   while (g.stage !== 'over' && steps++ < 200000) {
+    // todos atacam antes de qualquer passagem
+    assert(!(prevStage === 'move' && g.stage === 'attack'), 'ataque depois da passagem na mesma rodada');
+    prevStage = g.stage;
+    // o prompt da IA precisa ser gerado em qualquer etapa (em algumas rodadas, para ser rápido)
+    if (g.round <= 3 || g.round % 25 === 0) {
+      const prompt = buildAiPrompt(g);
+      assert(prompt.includes('## Sua ação agora') && !prompt.includes('undefined') && !prompt.includes('null'), 'prompt inválido');
+      assert(aiPromptFileName(g).endsWith('.txt'));
+    }
     if (g.round > 300) { if (process.env.DEBUG) console.log(g.players.map((p, i) => p.name + ":" + g.territoriesOf(i).length + "/" + g.totalArmies(i) + "/c" + p.cards.length).join(" "), "trocas", g.tradeCount); return { round: g.round, unfinished: true }; }
     if (g.stage === 'reinforce-continent') assert(g.pool && g.pool.continent, 'bônus de continente fora de ordem');
     if (g.stage === 'reinforce-territory') assert(g.pool && !g.pool.continent, 'bônus de território fora de ordem');

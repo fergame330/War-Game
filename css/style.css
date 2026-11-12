@@ -170,6 +170,8 @@ button { font: inherit; }
 .turn-head { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
 .turn-head .swatch { width: 22px; height: 22px; }
 .stage-name { color: var(--accent); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+.ai-row { display: flex; gap: 6px; margin: 6px 0 2px; }
+.ai-row .btn:first-child { flex: 1; }
 .instructions { color: var(--muted); margin: 8px 0; line-height: 1.4; }
 .instructions b { color: var(--text); }
 .big-number { font-size: 30px; font-weight: 800; color: var(--accent); }

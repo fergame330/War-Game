@@ -16,22 +16,21 @@ python3 -m http.server 8000   # depois acesse http://localhost:8000
    ficam com o que sobrar da divisão. Cada território começa com 1 exército.
 3. Quem começa com um continente inteiro coloca o bônus dele nesse continente.
 4. Cada jogador recebe metade dos exércitos que tem (arredondado para baixo) para colocar onde quiser.
-5. Cada rodada:
-   - **Ataque** (um jogador por vez): o atacante rola `exércitos − 1` dados, o defensor `exércitos`
-     (máximo de 3 cada). Os dados são comparados do maior para o menor e o empate é da defesa.
-     O território conquistado fica com 0 exércitos até você clicar nele e enviar de 1 a 3. Você pode
-     continuar atacando com o mesmo território enquanto, mesmo perdendo a batalha, sobrarem exércitos para
-     ocupar todos os territórios que ele conquistou + 1.
-   - **Passagem**: só para vizinhos, e só com os exércitos que já estavam no território no início da
-     passagem. Dentro de um continente que é todo seu a movimentação é livre.
-   - **Carta**: quem conquistou ao menos 1 território ganha 1 carta (bolinha, quadrado, triângulo,
-     estrela ou coringa) com um território aleatório.
-   - **Trocas** (na ordem, depois que todos atacaram): 4 cartas do mesmo naipe (o coringa vale por qualquer
-     um) valem 4, 6, 8, 10, 12, 15, 20, 25, 30, 35, 40… exércitos, contando as trocas de todos os jogadores.
-     Cada carta com um território seu dá +3 exércitos nele. Quem não tem troca possível é pulado.
-   - **Reforços** da rodada seguinte: primeiro todos os jogadores, na ordem, colocam o bônus de cada
-     continente dominado (no próprio continente); depois todos, na ordem, colocam o bônus de territórios
-     (metade do número de territórios, para baixo).
+5. Cada rodada tem as etapas abaixo. **Em cada etapa todos os jogadores agem, na ordem, antes da próxima**
+   (todos atacam; depois todos fazem a passagem; e assim por diante):
+   - **Reforços** (a partir da 2ª rodada): primeiro todos colocam o bônus de cada continente dominado (no
+     próprio continente); depois todos colocam o bônus de territórios (metade do número de territórios).
+   - **Ataque**: o atacante rola `exércitos − 1` dados, o defensor `exércitos` (máximo de 3 cada). Os dados são
+     comparados do maior para o menor e o empate é da defesa. O território conquistado fica com 0 exércitos até
+     você clicar nele e enviar de 1 a 3. Você pode continuar atacando com o mesmo território enquanto, mesmo
+     perdendo a batalha, sobrarem exércitos para ocupar todos os territórios que ele conquistou + 1.
+   - **Passagem**: só para vizinhos, e só com os exércitos que já estavam no território no início da passagem.
+     Dentro de um continente que é todo seu a movimentação é livre. Quem não tem o que passar é pulado.
+   - **Cartas**: depois da passagem de todos, quem conquistou ao menos 1 território ganha 1 carta (bolinha,
+     quadrado, triângulo, estrela ou coringa) com um território aleatório.
+   - **Trocas**: 4 cartas do mesmo naipe (o coringa vale por qualquer um) valem 4, 6, 8, 10, 12, 15, 20, 25,
+     30, 35, 40… exércitos, contando as trocas de todos os jogadores. Cada carta com um território seu dá +3
+     exércitos nele. Quem não tem troca possível é pulado.
 6. Quem elimina um jogador recebe as cartas dele. Vence quem dominar o mundo.
 
 ### Bônus dos continentes
@@ -53,6 +52,26 @@ python3 -m http.server 8000   # depois acesse http://localhost:8000
 - Passe o mouse sobre um território para ver dono, exércitos e fronteiras (inclusive as marítimas,
   desenhadas com linhas tracejadas).
 
+### Jogar com uma IA
+
+Na vez de qualquer jogador, o botão **🤖 Baixar prompt p/ IA** (no painel do turno e na troca de cartas) baixa
+um arquivo `.txt` com todas as regras, o estado do mundo (jogadores, continentes, territórios, exércitos e
+fronteiras), os dados do jogador da vez (territórios, cartas) e as ações possíveis naquele momento. O prompt
+pede para a IA responder **apenas a ação da vez** num formato fixo, por exemplo:
+
+```
+COLOCAR
+Brasil: 3
+Argentina: 2
+```
+
+```
+ATACAR Brasil -> Gana
+```
+
+Envie o arquivo (ou use **Copiar**) para a IA e aplique no tabuleiro a ação que ela responder. No ataque, cada
+batalha depende dos dados, então gere um novo prompt depois de cada ação.
+
 ## Estrutura
 
 ```
@@ -61,6 +80,7 @@ css/style.css       visual
 js/data.js          continentes, territórios e fronteiras
 js/mapdata.js       caminhos SVG do mapa (gerado)
 js/game.js          regras do jogo (sem DOM)
+js/ai-prompt.js     gera o prompt para uma IA jogar a vez (sem DOM)
 js/ui.js            mapa interativo, painéis e modais
 tools/build-map.js  gera js/mapdata.js a partir do Natural Earth
 tests/simulate.js   simula partidas aleatórias verificando as regras
