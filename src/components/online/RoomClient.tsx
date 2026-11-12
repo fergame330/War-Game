@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ONLINE_MODES, type Action, type ActionResult } from "@/lib/game/engine";
+import { ONLINE_MODES, TEAM_LETTERS, type Action, type ActionResult } from "@/lib/game/engine";
 import { api } from "@/lib/online/client";
-import type { RoomPayload } from "@/lib/online/types";
+import type { RoomPayload, RoomPlayerView } from "@/lib/online/types";
 import { GameView } from "@/components/game/GameView";
 import { Box, Screen } from "@/components/ui/Screen";
 import { useToast } from "@/components/ui/Toasts";
@@ -147,8 +147,31 @@ function Lobby({
   const amHost = room.players.some((p) => p.isHost && p.userId === room.myUserId);
   const count = room.players.length;
   const full = count >= room.capacity;
-  const canStart = count >= room.minPlayers && count <= room.capacity;
   const flexible = room.minPlayers !== room.capacity;
+  const hasTeams = room.numTeams > 0;
+  const chooseTeams = hasTeams && !room.randomTeams;
+  // com equipes escolhidas, todas precisam estar completas para iniciar
+  const teamProblem = chooseTeams
+    ? room.players.some((p) => p.team === null)
+      ? "Coloque todos os jogadores em uma equipe."
+      : Array.from({ length: room.numTeams }, (_, t) => t)
+          .map((t) => ({ t, n: room.players.filter((p) => p.team === t).length }))
+          .filter(({ n }) => n !== room.teamSize)
+          .map(({ t, n }) => `Equipe ${TEAM_LETTERS[t]}: ${n}/${room.teamSize}`)
+          .join(" · ") || null
+    : null;
+  const canStart = count >= room.minPlayers && count <= room.capacity && !teamProblem;
+
+  const setTeams = async (body: object) => {
+    setBusy(true);
+    try {
+      onUpdate(await api<RoomPayload>(`/api/rooms/${room.code}/teams`, { body }));
+    } catch (e) {
+      toast((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const start = async () => {
     setBusy(true);
@@ -194,11 +217,53 @@ function Lobby({
           </button>
         </div>
         <p className="mt-3 text-[13px] text-muted">
-          Compartilhe o código. {mode.mode === "solo" ? "As cores e a ordem" : "As equipes, as cores e a ordem"} são sorteadas ao iniciar.
+          Compartilhe o código.{" "}
+          {!hasTeams ? "As cores e a ordem são sorteadas ao iniciar." : chooseTeams ? "As equipes são escolhidas por quem criou a sala; cores e ordem são sorteadas ao iniciar." : "As equipes, as cores e a ordem são sorteadas ao iniciar."}
           {room.reconnectTimer ? " Tempo de reconexão: 3 minutos." : " Sem tempo de reconexão."}
         </p>
 
-        <h3 className="mt-5 mb-2 text-left font-bold">
+        {hasTeams && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-left">
+            <h3 className="font-bold">
+              Equipes <span className="text-xs font-normal text-muted">({count}/{room.capacity} jogadores)</span>
+            </h3>
+            {amHost ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-lg border border-line p-0.5 text-[13px]">
+                  {(
+                    [
+                      [true, "Aleatórias"],
+                      [false, "Escolher"],
+                    ] as const
+                  ).map(([v, label]) => (
+                    <button
+                      key={label}
+                      disabled={busy}
+                      onClick={() => room.randomTeams !== v && setTeams({ randomTeams: v })}
+                      className={`cursor-pointer rounded-md px-3 py-1 font-semibold ${room.randomTeams === v ? "bg-accent text-[#1b1300]" : "text-muted"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {chooseTeams && (
+                  <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setTeams({ shuffle: true })}>
+                    Sortear agora
+                  </button>
+                )}
+              </div>
+            ) : (
+              <span className="text-[13px] text-muted">{chooseTeams ? "definidas por quem criou a sala" : "sorteadas ao iniciar"}</span>
+            )}
+          </div>
+        )}
+        {chooseTeams && (
+          <TeamsBoard room={room} editable={amHost && !busy} onAssign={(userId, team) => setTeams({ assign: { userId, team } })} />
+        )}
+
+        {!chooseTeams && (
+          <>
+        <h3 className={`mb-2 text-left font-bold mt-5`}>
           Jogadores ({count}/{room.capacity})
           {flexible && <span className="ml-2 text-xs font-normal text-muted">mínimo {room.minPlayers} para iniciar</span>}
         </h3>
@@ -225,6 +290,8 @@ function Lobby({
             ))
           )}
         </ul>
+          </>
+        )}
 
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {isMember ? (
@@ -233,12 +300,14 @@ function Lobby({
                 Sair da sala
               </button>
               {amHost ? (
-                <button className="btn btn-big" disabled={!canStart || busy} onClick={start}>
+                <button className="btn btn-big" disabled={!canStart || busy} onClick={start} title={teamProblem ?? undefined}>
                   {canStart
                     ? flexible
                       ? `Iniciar com ${count} jogadores`
                       : "Iniciar partida"
-                    : `Aguardando ${room.minPlayers - count}…`}
+                    : count < room.minPlayers
+                      ? `Aguardando ${room.minPlayers - count}…`
+                      : "Equipes incompletas"}
                 </button>
               ) : (
                 <span className="self-center text-muted">Aguardando o dono da sala iniciar…</span>
@@ -255,9 +324,74 @@ function Lobby({
             </>
           )}
         </div>
+        {amHost && teamProblem && count >= room.minPlayers && <p className="mt-3 text-[13px] text-[#ffb4a8]">{teamProblem}</p>}
         {isMember && !connected && <p className="mt-3 text-xs text-[#ffb4a8]">Reconectando…</p>}
       </Box>
     </Screen>
+  );
+}
+
+/** Quadro das equipes no lobby: quem criou a sala move cada jogador pelo seletor. */
+function TeamsBoard({ room, editable, onAssign }: { room: RoomPayload; editable: boolean; onAssign: (userId: string, team: number | null) => void }) {
+  const teams = Array.from({ length: room.numTeams }, (_, t) => t);
+  const row = (p: RoomPlayerView) => (
+    <li key={p.userId} className="flex items-center gap-2 rounded-md bg-panel px-2 py-1.5 text-[13px]">
+      <span className={`size-2 flex-none rounded-full ${p.online ? "bg-ok" : "bg-danger"}`} />
+      <span className="min-w-0 flex-1 truncate font-semibold">
+        {p.username}
+        {p.userId === room.myUserId && <span className="ml-1 font-normal text-muted">(você)</span>}
+      </span>
+      {editable && (
+        <select
+          className="flex-none rounded-md border border-line bg-panel-2 px-1 py-0.5 text-xs"
+          title="Mover para a equipe (— = sem equipe)"
+          value={p.team ?? ""}
+          aria-label={`Equipe de ${p.username}`}
+          onChange={(e) => onAssign(p.userId, e.target.value === "" ? null : Number(e.target.value))}
+        >
+          {teams.map((t) => (
+            <option key={t} value={t} disabled={p.team !== t && room.players.filter((x) => x.team === t).length >= room.teamSize}>
+              {TEAM_LETTERS[t]}
+            </option>
+          ))}
+          <option value="">—</option>
+        </select>
+      )}
+    </li>
+  );
+  const unassigned = room.players.filter((p) => p.team === null);
+  return (
+    <div className="mt-2 text-left">
+      <div className={`grid gap-2 ${room.numTeams > 2 ? "sm:grid-cols-2" : "grid-cols-2 compact:grid-cols-1"}`}>
+        {teams.map((t) => {
+          const members = room.players.filter((p) => p.team === t);
+          return (
+            <div key={t} className="rounded-lg border border-line bg-panel-2 p-2">
+              <div className="mb-1.5 flex items-center justify-between text-sm font-bold">
+                <span className="text-accent">Equipe {TEAM_LETTERS[t]}</span>
+                <span className={`text-xs ${members.length === room.teamSize ? "text-ok" : "text-muted"}`}>
+                  {members.length}/{room.teamSize}
+                </span>
+              </div>
+              <ul className="grid gap-1">
+                {members.map(row)}
+                {Array.from({ length: Math.max(0, room.teamSize - members.length) }, (_, i) => (
+                  <li key={`v${i}`} className="rounded-md border border-dashed border-line px-2 py-1.5 text-xs text-muted">
+                    vaga livre
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      {unassigned.length > 0 && (
+        <div className="mt-2 rounded-lg border border-dashed border-line p-2">
+          <div className="mb-1 text-xs font-bold text-muted">Sem equipe</div>
+          <ul className="grid gap-1">{unassigned.map(row)}</ul>
+        </div>
+      )}
+    </div>
   );
 }
 

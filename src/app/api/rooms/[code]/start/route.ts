@@ -1,7 +1,8 @@
 import { Prisma } from "@/generated/prisma/client";
 import { Game, ONLINE_MODES, type OnlineModeKey } from "@/lib/game/engine";
 import { db } from "@/lib/server/db";
-import { buildPayload, errorResponse, HttpError, loadRoom, requireUser } from "@/lib/server/rooms";
+import { buildPayload, errorResponse, HttpError, loadRoom, requireUser, teamInfo } from "@/lib/server/rooms";
+import { TEAM_LETTERS } from "@/lib/game/engine";
 
 /** O dono da sala inicia a partida quando todas as vagas estão preenchidas. */
 export async function POST(_request: Request, ctx: RouteContext<"/api/rooms/[code]/start">) {
@@ -21,11 +22,24 @@ export async function POST(_request: Request, ctx: RouteContext<"/api/rooms/[cod
           : `São necessários de ${mode.minPlayers} a ${mode.players} jogadores (há ${count}).`
       );
     }
-    // cores, ordem, equipes e territórios são sorteados pelo motor
+    // equipes definidas pelo dono: todas precisam estar completas
+    const { teamSize, numTeams } = teamInfo(room.mode);
+    const fixedTeams = numTeams > 0 && !room.randomTeams;
+    if (fixedTeams) {
+      if (room.players.some((p) => p.team === null || p.team < 0 || p.team >= numTeams)) {
+        throw new HttpError(409, "Coloque todos os jogadores em uma equipe (ou deixe as equipes aleatórias).");
+      }
+      for (let t = 0; t < numTeams; t++) {
+        const n = room.players.filter((p) => p.team === t).length;
+        if (n !== teamSize) throw new HttpError(409, `A Equipe ${TEAM_LETTERS[t]} precisa ter ${teamSize} jogadores (tem ${n}).`);
+      }
+    }
+    // cores, ordem, equipes (se aleatórias) e territórios são sorteados pelo motor
     const game = Game.create(count, {
       mode: mode.mode,
       names: room.players.map((p) => p.user.username),
       userIds: room.players.map((p) => p.userId),
+      teams: fixedTeams ? room.players.map((p) => p.team!) : undefined,
     });
     const state = game.toState();
     const seatOf = new Map(state.players.map((p) => [p.userId!, p.index]));

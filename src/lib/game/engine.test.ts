@@ -133,6 +133,23 @@ describe('modos de equipe', () => {
     }
   });
 
+  it('equipes definidas pelo dono da sala', () => {
+    const names = ['ana', 'beto', 'caio', 'dani', 'edu', 'fabi'];
+    const teams = [1, 0, 2, 2, 0, 1]; // ana+fabi = B, beto+edu = A, caio+dani = C
+    const firsts = new Set<number>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const g = Game.create(6, { mode: 'duplas', names, userIds: names, teams, rng: seeded(seed) });
+      for (const pl of g.s.players) expect(pl.team).toBe(teams[names.indexOf(pl.name)]);
+      // a ordem continua alternando as equipes
+      for (let i = 1; i < 6; i++) expect(g.s.players[i].team).not.toBe(g.s.players[i - 1].team);
+      expect(new Set(g.s.players.slice(0, 3).map((p) => p.team)).size).toBe(3);
+      firsts.add(g.s.players[0].team);
+    }
+    // a equipe que começa é sorteada
+    expect(firsts.size).toBeGreaterThan(1);
+    expect(() => Game.create(6, { mode: 'duplas', names, teams: [0, 0, 0, 1, 1, 2] })).toThrow();
+  });
+
   it('aliados não se atacam e passagem para aliado chega pela metade', () => {
     const g = Game.create(4, { mode: 'duplas', rng: seeded(6) });
     toAttack(g);
